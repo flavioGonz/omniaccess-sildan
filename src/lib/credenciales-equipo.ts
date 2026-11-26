@@ -31,6 +31,9 @@ export type Verificacion = {
     /** Si la ficha dice que es un grabador. Cambia el tipo con el que se da de alta. */
     grabador: boolean;
     detalle: string | null;
+    /** El tipo que el equipo declara (ISAPI <deviceType>: IPCamera, NVR, ACS…) y su MAC (26/11, descubridor). */
+    clase?: string | null;
+    mac?: string | null;
 };
 
 const VACIA: Omit<Verificacion, "ip" | "estado" | "protocolo" | "detalle"> = {
@@ -69,6 +72,8 @@ async function porIsapi(ip: string, c: Credencial, puerto?: number): Promise<Ver
             serie: entre(xml, "serialNumber"),
             firmware: entre(xml, "firmwareVersion"),
             nombre: entre(xml, "deviceName"),
+            clase: entre(xml, "deviceType"),
+            mac: entre(xml, "macAddress"),
             // Un grabador se delata por el tipo que declara o por la familia del modelo
             // (DS-7xxx / DS-9xxx son NVR; las cámaras son DS-2xxx).
             grabador: /NVR|DVR|recorder/i.test(tipo) || /\bDS-[79]\d/i.test(tipo),

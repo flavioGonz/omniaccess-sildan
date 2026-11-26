@@ -15,6 +15,12 @@
 
 /** Los puertos que se prueban, y qué significa cada uno. Pocos: cada uno cuesta tiempo por IP. */
 export const PUERTOS = [80, 443, 554, 8000, 37777, 22] as const;
+/**
+ * Los del descubridor inteligente (26/11): además de los de video, los que delatan qué es lo que
+ * NO es una cámara — Winbox (8291) es un MikroTik, 9100 una impresora, 3389 un Windows, 5060 un
+ * teléfono o un portero SIP, 8443 un controlador UniFi. Se prueban sólo en las que contestaron.
+ */
+export const PUERTOS_AMPLIOS = [80, 443, 554, 8000, 37777, 22, 8291, 9100, 3389, 5060, 8443] as const;
 
 /** Un octeto decimal, sin ceros a la izquierda ni espacios ni nada más. */
 const OCTETO = /^(0|[1-9]\d{0,2})$/;

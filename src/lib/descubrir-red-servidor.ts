@@ -4,7 +4,11 @@ import os from "os";
 import dns from "dns/promises";
 import { promisify } from "util";
 import { prisma } from "@/lib/prisma";
-import { direcciones, prefijoDe, queParece, PUERTOS, type Hallazgo, type Parecer } from "@/lib/descubrir-red";
+import { direcciones, prefijoDe, queParece, PUERTOS, PUERTOS_AMPLIOS, type Hallazgo, type Parecer } from "@/lib/descubrir-red";
+import { promises as fsp } from "fs";
+import { clasificar, convieneProbarClave, fabricantePorMac, nombrePropuesto, type Clasificacion } from "@/lib/descubrir-inteligente";
+import { preguntarSnmp, type FichaSnmp } from "@/lib/snmp-servidor";
+import { probarCredencial, type Credencial, type Verificacion } from "@/lib/credenciales-equipo";
 
 /**
  * El barrido de red de Dispositivos: lo que toca la red.
@@ -135,4 +139,139 @@ export async function barrer(subred: string, desde: number, hasta: number): Prom
 
     hallazgos.sort((a, b) => Number(a.ip.split(".")[3]) - Number(b.ip.split(".")[3]));
     return { total: ips.length, hallazgos };
+}
+
+/* ═══════════════════════ El descubridor inteligente (26/11) ═══════════════════════
+ *
+ * Dos pasos en vez de uno, para que ninguna llamada pase el minuto del proxy y la pantalla pueda
+ * mostrar el avance: primero el ping a todo el rango (con la MAC de las que están en la misma red),
+ * después la identificación de a tandas cortas — puertos, página web, SNMP, la ficha con
+ * credenciales y, si es una cámara, si tiene ANPR.
+ */
+
+export type Viva = { ip: string; rtt: number | null; mac: string | null; fabricanteMac: string | null };
+
+/**
+ * La tabla ARP del servidor: después del ping, la MAC de cada vecina de la MISMA red. Si el rango
+ * está detrás de un router (otra subred, una VPN) no hay MAC: la que se ve es la del router, y el
+ * núcleo ni la anota por IP. Por eso la MAC es una pista que a veces falta, nunca un requisito.
+ */
+async function tablaArp(): Promise<Map<string, string>> {
+    const m = new Map<string, string>();
+    try {
+        const txt = await fsp.readFile("/proc/net/arp", "utf8");
+        for (const l of txt.split("\n").slice(1)) {
+            const c = l.trim().split(/\s+/);
+            if (c.length >= 4 && c[2] !== "0x0" && /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(c[3]) && c[3] !== "00:00:00:00:00:00") m.set(c[0], c[3].toUpperCase());
+        }
+    } catch { /* sin /proc (no es Linux): sin MAC */ }
+    return m;
+}
+
+export async function barrerPing(subred: string, desde: number, hasta: number): Promise<{ total: number; vivas: Viva[]; mismaRed: boolean }> {
+    const ips = direcciones(subred, desde, hasta);
+    if (!ips.length) throw new Error("Ese rango no se puede barrer.");
+    const vivas: { ip: string; rtt: number | null }[] = [];
+    for (let i = 0; i < ips.length; i += EN_PARALELO) {
+        const tanda = await Promise.all(ips.slice(i, i + EN_PARALELO).map(async (ip) => ({ ip, rtt: await pingear(ip) })));
+        for (const r of tanda) if (r.rtt != null) vivas.push(r);
+    }
+    const arp = await tablaArp();
+    const mismaRed = subredesPropias().includes(subred);
+    return {
+        total: ips.length, mismaRed,
+        vivas: vivas.map((v) => { const mac = arp.get(v.ip) || null; return { ...v, mac, fabricanteMac: fabricantePorMac(mac) }; }),
+    };
+}
+
+export type Identificado = {
+    ip: string; rtt: number | null; mac: string | null; nombreDns: string | null; puertos: number[];
+    servidor: string | null; reino: string | null; habla: ("ISAPI" | "DAHUA")[];
+    snmp: FichaSnmp | null;
+    /** Con qué credencial entró (su número en la lista, nunca la clave), o por qué no. */
+    acceso: { estado: "ok" | "clave" | "muda" | "sin-probar"; credencial: number | null; detalle: string | null };
+    ficha: { modelo: string | null; serie: string | null; firmware: string | null; nombre: string | null; clase: string | null; protocolo: string | null } | null;
+    /** Grabadores: cuántos canales tiene y cuántos con cámara. */
+    canales: { total: number; conCamara: number } | null;
+    anpr: boolean | null;
+    clasificacion: Clasificacion;
+    nombre: string;
+    equipo: { id: string; nombre: string; tipo: string } | null;
+};
+
+const contar = (xml: string, etiqueta: string) => (xml.match(new RegExp(`<${etiqueta}[\\s>]`, "gi")) || []).length;
+
+/** Los canales de un grabador Hikvision con la credencial que ya entró. Sólo GET. */
+async function canalesDeGrabador(ip: string, c: Credencial): Promise<{ total: number; conCamara: number } | null> {
+    try {
+        const { authenticatedRequest } = await import("@/lib/digest-auth");
+        const xml: string = await authenticatedRequest("GET", "/ISAPI/ContentMgmt/InputProxy/channels", { ip, username: c.usuario, password: c.clave, authType: "DIGEST" },
+            { responseType: "text", accept: "application/xml", timeout: 8000 });
+        const total = contar(String(xml), "InputProxyChannel");
+        return total ? { total, conCamara: (String(xml).match(/<ipAddress>\s*\d/gi) || []).length } : null;
+    } catch { return null; }
+}
+
+/**
+ * Identifica una dirección con todo lo que se le pueda preguntar sin escribirle nada.
+ *
+ * Las credenciales se prueban en orden y se corta en la primera que entra. Sólo con los equipos
+ * nuevos (un equipo ya dado de alta tiene la suya) y sólo con los que hablan ISAPI o el CGI de
+ * Dahua: cada clave equivocada es un login fallido, y una Hikvision bloquea la IP del servidor
+ * después de unos pocos — el mismo servidor que después le tiene que leer las matrículas.
+ */
+export async function identificarUno(v: Viva, op: { credenciales: Credencial[]; comunidad: string | null; equipo: Identificado["equipo"] }): Promise<Identificado> {
+    const [puertos, nombreDns, snmp] = await Promise.all([
+        Promise.all(PUERTOS_AMPLIOS.map(async (p) => ((await puertoAbierto(v.ip, p)) ? p : 0))).then((l) => l.filter(Boolean) as number[]),
+        dns.reverse(v.ip).then((l) => l[0] || null).catch(() => null),
+        op.comunidad ? preguntarSnmp(v.ip, op.comunidad) : Promise.resolve(null),
+    ]);
+    const w = puertos.includes(80) ? await identificar(v.ip) : { servidor: null, reino: null, habla: [] as ("ISAPI" | "DAHUA")[] };
+
+    let acceso: Identificado["acceso"] = { estado: "sin-probar", credencial: null, detalle: null };
+    let ver: Verificacion | null = null;
+    let usada: Credencial | null = null;
+    const probar = !op.equipo && op.credenciales.length > 0 && puertos.includes(80) && convieneProbarClave({ puertos, habla: w.habla, mac: v.mac });
+    if (probar) {
+        let mala: Verificacion | null = null;
+        for (let i = 0; i < op.credenciales.length; i++) {
+            const r = await probarCredencial(v.ip, op.credenciales[i], w.habla);
+            if (r.estado === "ok") { ver = r; usada = op.credenciales[i]; acceso = { estado: "ok", credencial: i, detalle: null }; break; }
+            if (r.estado === "clave") mala = r;
+            else break; // «muda»: no habla la ficha; otra clave no lo va a cambiar
+        }
+        if (!ver) acceso = mala ? { estado: "clave", credencial: null, detalle: "Ninguna de las claves entró." } : { estado: "muda", credencial: null, detalle: "No contestó la ficha del equipo." };
+    }
+
+    let canales: Identificado["canales"] = null, anpr: boolean | null = null;
+    if (ver && usada) {
+        const tipoDeclarado = `${ver.clase || ""} ${ver.modelo || ""}`;
+        if (ver.grabador && ver.protocolo === "ISAPI") canales = await canalesDeGrabador(v.ip, usada);
+        else if (ver.protocolo === "ISAPI" && /ip ?camera|ip ?dome|ipc|ds-2|ids-/i.test(tipoDeclarado)) {
+            try {
+                const { capacidadesCamara } = await import("@/lib/capacidades-camara");
+                anpr = (await capacidadesCamara({ ip: v.ip, username: usada.usuario, password: usada.clave, authType: "DIGEST", brand: "HIKVISION", deviceModel: ver.modelo })).anpr;
+            } catch { anpr = null; }
+        }
+    }
+
+    const mac = v.mac || ver?.mac || null;
+    const clasificacion = clasificar({
+        puertos, servidor: w.servidor, reino: w.reino, habla: w.habla, mac, snmp,
+        ficha: ver ? { protocolo: ver.protocolo, clase: ver.clase, modelo: ver.modelo, grabador: ver.grabador } : null, anpr,
+    });
+    return {
+        ip: v.ip, rtt: v.rtt, mac, nombreDns, puertos, ...w, snmp, acceso,
+        ficha: ver ? { modelo: ver.modelo, serie: ver.serie, firmware: ver.firmware, nombre: ver.nombre, clase: ver.clase || null, protocolo: ver.protocolo } : null,
+        canales, anpr, clasificacion,
+        nombre: op.equipo?.nombre || nombrePropuesto(clasificacion, v.ip, ver?.nombre || snmp?.nombre || null),
+        equipo: op.equipo,
+    };
+}
+
+/** Una tanda de identificaciones en paralelo, con los equipos ya dados de alta marcados. */
+export async function identificarVarias(vivas: Viva[], op: { credenciales: Credencial[]; comunidad: string | null }): Promise<Identificado[]> {
+    const equipos = await prisma.device.findMany({ where: { ip: { in: vivas.map((v) => v.ip) } }, select: { id: true, name: true, ip: true, deviceType: true } });
+    const porIp = new Map(equipos.map((e) => [e.ip, { id: e.id, nombre: e.name, tipo: String(e.deviceType) }]));
+    return Promise.all(vivas.map((v) => identificarUno(v, { ...op, equipo: porIp.get(v.ip) || null })));
 }

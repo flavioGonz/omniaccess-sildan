@@ -4,7 +4,7 @@ import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { prisma } from "@/lib/prisma";
 import { esSubredPrivada, leerRango, subredesSugeridas } from "@/lib/descubrir-red";
-import { barrer, subredesPropias } from "@/lib/descubrir-red-servidor";
+import { barrer, barrerPing, identificarVarias, subredesPropias, type Viva } from "@/lib/descubrir-red-servidor";
 import { probarVarias } from "@/lib/credenciales-equipo";
 import type { DeviceBrand, DeviceType } from "@prisma/client";
 
@@ -20,6 +20,12 @@ const PERMISO = "dispositivos.editar";
  * POST { rango } — el barrido. `rango` entiende «192.168.1», un CIDR o un tramo (lib/leerRango).
  * POST { accion: "probar", ips, usuario, clave } — probar esa credencial contra esos equipos.
  * POST { accion: "alta", equipos } — dar de alta varios de una.
+ *
+ * El descubridor inteligente (26/11), en dos pasos para que ninguna llamada pase el minuto del proxy
+ * y la pantalla muestre el avance:
+ * POST { accion: "ping", rango } — quién contesta, con su MAC si está en la misma red.
+ * POST { accion: "identificar", vivas, credenciales, comunidad } — de a tandas: qué es cada una.
+ *      Las claves viajan en cada tanda y no se guardan ni se auditan; se audita cuántas se probaron.
  *
  * Pide «Editar dispositivos» y queda en Auditoría: manda tráfico a toda una red del cliente, y
  * eso tiene que poder explicarse después.
@@ -43,10 +49,42 @@ export async function GET() {
 const TIPOS = new Set(["LPR_CAMERA", "LPR_INTERIOR", "CAMERA", "NVR", "FACE_TERMINAL", "ACCESS_CONTROL", "DOOR_INTERCOM", "QUEUE_COUNTER", "GPS"]);
 const MARCAS = new Set(["GENERICA", "HIKVISION", "AKUVOX", "INTELBRAS", "DAHUA", "ZKTECO", "AVICAM", "MILESIGHT", "UNIFI", "UNIVIEW", "BOSCH", "AXIS", "GRANDSTREAM"]);
 const ALTA_MAX = 40;
+/** Direcciones por tanda de identificación: con puertos, web, SNMP y claves, seis en paralelo caben en ~20 s. */
+const IDENTIFICAR_MAX = 6;
+/** Claves a probar por equipo. Más es invitar a que una Hikvision bloquee al servidor por logins fallidos. */
+const CREDENCIALES_MAX = 3;
 
 export async function POST(req: NextRequest) {
     const q = await permitido(); if (q instanceof NextResponse) return q;
     const b = await req.json().catch(() => null);
+
+    // ── Descubridor inteligente: el ping ──
+    if (b?.accion === "ping") {
+        const r = leerRango(String(b?.rango || ""));
+        if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
+        const t0 = Date.now();
+        try {
+            const p = await barrerPing(r.subred, r.desde, r.hasta);
+            await auditar(q.sesion, "equipos.descubrir", `${r.subred}.${r.desde}-${r.hasta}`, true, `${p.vivas.length} de ${p.total} contestaron (descubridor)`);
+            return NextResponse.json({ ...p, ms: Date.now() - t0 }, { headers: SIN_CACHE });
+        } catch (e) {
+            return NextResponse.json({ error: e instanceof Error ? e.message : "no se pudo barrer" }, { status: 500 });
+        }
+    }
+
+    // ── Descubridor inteligente: una tanda de identificación ──
+    if (b?.accion === "identificar") {
+        const vivas: Viva[] = (Array.isArray(b?.vivas) ? b.vivas : []).slice(0, IDENTIFICAR_MAX)
+            .map((v: Partial<Viva>) => ({ ip: String(v?.ip || ""), rtt: typeof v?.rtt === "number" ? v.rtt : null, mac: typeof v?.mac === "string" ? v.mac : null, fabricanteMac: null }))
+            .filter((v: Viva) => /^\d{1,3}(\.\d{1,3}){3}$/.test(v.ip) && esSubredPrivada(v.ip.split(".").slice(0, 3).join(".")));
+        if (!vivas.length) return NextResponse.json({ error: "No viene ninguna dirección." }, { status: 400 });
+        const credenciales = (Array.isArray(b?.credenciales) ? b.credenciales : []).slice(0, CREDENCIALES_MAX)
+            .map((c: { usuario?: unknown; clave?: unknown }) => ({ usuario: String(c?.usuario || "").trim().slice(0, 60), clave: String(c?.clave ?? "").slice(0, 120) }))
+            .filter((c: { usuario: string }) => c.usuario);
+        const comunidad = typeof b?.comunidad === "string" && b.comunidad.trim() ? b.comunidad.trim().slice(0, 64) : null;
+        const r = await identificarVarias(vivas, { credenciales, comunidad });
+        return NextResponse.json({ identificados: r }, { headers: SIN_CACHE });
+    }
 
     // ── Probar credenciales contra lo que apareció ──
     if (b?.accion === "probar") {
@@ -66,7 +104,10 @@ export async function POST(req: NextRequest) {
     if (b?.accion === "alta") {
         const lista = (Array.isArray(b?.equipos) ? b.equipos : []).slice(0, ALTA_MAX);
         if (!lista.length) return NextResponse.json({ error: "No viene ningún equipo." }, { status: 400 });
-        const hechos: { ip: string; id: string; nombre: string }[] = [];
+        const hechos: { ip: string; id: string; nombre: string; tipo: string }[] = [];
+        /* El área de cada uno (26/11, «consultar un área para cada uno en la importación»): se juntan
+           por área y se asignan al final, una escritura por área en vez de una por equipo. */
+        const porArea = new Map<string, string[]>();
         const fallados: { ip: string; motivo: string }[] = [];
         for (const e of lista) {
             const ip = String(e?.ip || "").trim();
@@ -88,13 +129,24 @@ export async function POST(req: NextRequest) {
                         authType: "DIGEST",
                         httpPort: Number(e?.puerto) > 0 ? Number(e.puerto) : null,
                         location: String(e?.lugar || "").slice(0, 120) || null,
+                        mac: typeof e?.mac === "string" && /^[0-9a-f:.-]{12,17}$/i.test(e.mac) ? e.mac.toUpperCase() : null,
+                        direction: e?.sentido === "EXIT" ? "EXIT" : "ENTRY",
                     },
                     select: { id: true, name: true },
                 });
-                hechos.push({ ip, id: d.id, nombre: d.name });
+                hechos.push({ ip, id: d.id, nombre: d.name, tipo });
+                if (typeof e?.areaId === "string" && e.areaId) porArea.set(e.areaId, [...(porArea.get(e.areaId) || []), d.id]);
+                // Las cámaras quedan con su video en go2rtc, como al importarlas de un grabador.
+                if (["CAMERA", "LPR_CAMERA", "LPR_INTERIOR", "DOOR_INTERCOM"].includes(tipo)) {
+                    try { const full = await prisma.device.findUnique({ where: { id: d.id } }); const { syncLprStream } = await import("@/lib/go2rtc-sync"); if (full) await syncLprStream(full); } catch { /* el video se puede reintentar desde la ficha */ }
+                }
             } catch (err) {
                 fallados.push({ ip, motivo: err instanceof Error ? err.message : "No se pudo crear." });
             }
+        }
+        if (porArea.size) {
+            const { asignarEquipos } = await import("@/app/actions/areas");
+            for (const [areaId, ids] of porArea) { try { await asignarEquipos(ids, areaId); } catch (err) { fallados.push({ ip: "", motivo: `No se pudo poner en el área: ${err instanceof Error ? err.message : "error"}` }); } }
         }
         await auditar(q.sesion, "equipos.alta-descubrimiento", `${hechos.length} equipos`, !!hechos.length,
             [hechos.map((h) => `${h.ip} ${h.nombre}`).join(", "), fallados.map((f) => `${f.ip}: ${f.motivo}`).join(", ")].filter(Boolean).join(" · ").slice(0, 400));
