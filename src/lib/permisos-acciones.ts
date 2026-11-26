@@ -137,6 +137,7 @@ export const ACCIONES: Record<string, Archivo> = {
     history: { defecto: P("historial.exportar", "lpr.operar"), por: { visionParaExportar: S } },
     invitations: { defecto: P("invitados.gestionar", "guardia"), por: { setWaAllowlist: P("invitados.gestionar", "ajustes"), expireStaleInvitations: P("invitados.gestionar") } },
     "lpr-sync": { defecto: P("dispositivos.editar", "vehiculos.editar", "usuarios.editar") },
+    "lpr-interiores": { defecto: P("lpr", "lpr.operar") },
     maps: { defecto: P("mapa.editar") },
     "modo-camara": { defecto: P("dispositivos.editar") },
     modules: { defecto: P("ajustes") },

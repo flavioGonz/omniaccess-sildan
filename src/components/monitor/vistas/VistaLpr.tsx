@@ -27,6 +27,8 @@ import {
     type ClaseMonitor, type ClaveComportamiento, type Comportamiento, type NivelListaNegra,
 } from "@/lib/padron";
 import type { RelecturaEvento } from "@/lib/relectura";
+import type { ChapaAdentro } from "@/lib/lpr-interiores";
+import { Cronometro } from "@/components/tracking/Cronometro";
 import type { Analisis } from "@/lib/vision-capa";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { conAncho } from "@/lib/ancho-foto";
@@ -96,6 +98,8 @@ type Datos = {
     logos?: Record<string, Logo>;
     /** Los interruptores de las pestañas de Usuarios: color propio y sonido al pasar, por clase. */
     comportamiento?: Comportamiento;
+    /** Las chapas adentro vistas por las LPR interiores (26/11, lib/lpr-interiores). null = no hay interiores. */
+    interiores?: { camaras: number; chapas: ChapaAdentro[] } | null;
 };
 type Logo = { nombre: string; logo: string; transparente: boolean };
 type Ficha = {
@@ -162,7 +166,8 @@ const filtrosDe = (modo: Modo): { v: Filtro; l: string }[] => [{ v: "todas", l: 
 const pasaFiltro = (l: Lectura, f: Filtro, modo: Modo) => {
     if (f === "todas") return true;
     if (f === "denegadas") return modo === "ABIERTO" ? !l.registrada && !esListaNegra(l) : l.decision !== "GRANT";
-    const sentido = f === "salidas" ? l.sentido === "EXIT" : l.sentido !== "EXIT";
+    // Una lectura de una LPR interior (sentido INTERIOR, 26/11) no es entrada ni salida.
+    const sentido = f === "salidas" ? l.sentido === "EXIT" : l.sentido === "ENTRY";
     return modo === "ABIERTO" ? sentido : l.decision === "GRANT" && sentido;
 };
 
@@ -416,7 +421,7 @@ export function VistaLpr() {
                                                         </span>
                                                     );
                                                 })()}
-                                                <span className="block text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}</span>
+                                                <span className="block text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : l.sentido === "INTERIOR" ? "interior" : "entrada"}</span>
                                             </span>
                                             <est.Ic size={18} className={ok ? "text-[var(--bien)]" : est.error ? "text-[var(--mal)]" : "text-white/50"} />
                                         </span>
@@ -439,6 +444,27 @@ export function VistaLpr() {
                             tono={x.clave === "atipicos" ? (datos?.presencia?.atipicos ? "aviso" : undefined) : x.tono} activo={cajon === x.clave} alTocar={() => setCajon(x.clave)} />
                     ))}
                 </div>
+                {/* Las interiores (26/11, Nico: «en el video wall también las LPR interiores»): las chapas
+                    que están adentro, vistas por ellas, cada una con su reloj. Sólo si hay interiores. */}
+                {datos?.interiores && (
+                    <div className="shrink-0 max-h-[42%] rounded-2xl bg-card border border-violet-500/30 p-3 lg:p-4 flex flex-col gap-2.5 overflow-hidden">
+                        <div className="flex items-center gap-2 text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                            <span className="h-2 w-2 rounded-full bg-violet-500" /> Interiores · adentro
+                            <span className="ml-auto text-[18px] font-bold tabular-nums text-foreground normal-case tracking-normal">{datos.interiores.chapas.length}</span>
+                        </div>
+                        {datos.interiores.chapas.length === 0 ? <div className="text-[16px] text-muted-foreground">Las interiores no vieron matrículas en las últimas 12 horas</div> : (
+                            <div className="min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 gap-2 [scrollbar-width:thin]">
+                                {datos.interiores.chapas.map((c, i) => (
+                                    <div key={c.plate} className={cn("rounded-xl border px-3 py-2 bg-muted/30", i === 0 ? "col-span-2" : "", c.lista === "negra" ? "border-red-500/60" : c.lista === "amarilla" ? "border-yellow-400/60" : "border-border")}>
+                                        <div className={cn("font-extrabold tabular-nums tracking-[0.12em] leading-none whitespace-nowrap", i === 0 ? "text-[30px]" : "text-[19px]")}>{c.plate.replace(/^([A-Z]{3})(\d{4})$/, "$1 $2")}</div>
+                                        <div className="mt-1 truncate text-[12.5px] text-muted-foreground">{c.quien ? `${c.quien.nombre}${c.quien.lote ? ` · ${c.quien.lote}` : ""}` : "No está en el padrón"}</div>
+                                        <Cronometro desde={c.desde} tamano="chico" className="mt-1.5" />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div className="flex-1 min-h-[160px] rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
                     <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><ShieldAlert size={14} /> Atención · últimas 24 h</div>
                     {datos && datos.atencion.length === 0 && <div className="text-[18px] text-muted-foreground">Sin novedades</div>}
@@ -523,7 +549,7 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
             <div className="absolute top-0 inset-x-0 p-4 lg:p-6 flex items-start justify-between gap-4 pointer-events-none">
                 <div className="flex items-center gap-3 text-[18px] text-white/85">
                     {l.sentido === "EXIT" ? <LogOut size={22} /> : <LogIn size={22} />}
-                    <span className="font-bold">{l.sentido === "EXIT" ? "Salida" : "Entrada"}</span>
+                    <span className="font-bold">{l.sentido === "EXIT" ? "Salida" : l.sentido === "INTERIOR" ? "Interior" : "Entrada"}</span>
                     <span className="text-white/55 truncate">· {l.camara || "—"}</span>
                 </div>
                 <div className="text-right text-white/85">
@@ -900,7 +926,7 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                                         <span className={cn("inline-flex items-center gap-2 h-11 px-4 rounded-xl font-black uppercase tracking-[0.06em] text-[17px]", est.c)}><est.Ic size={20} /> {est.t}</span>
                                     </div>
                                     <div className="text-[15px] text-muted-foreground -mt-2">
-                                        {l.sentido === "EXIT" ? "Salida" : "Entrada"} · {l.camara || "—"} · <span className="tabular-nums">{horaCorta(l.ts)}</span> · {hace(l.ts)}
+                                        {l.sentido === "EXIT" ? "Salida" : l.sentido === "INTERIOR" ? "Interior" : "Entrada"} · {l.camara || "—"} · <span className="tabular-nums">{horaCorta(l.ts)}</span> · {hace(l.ts)}
                                         {est.error && <div className="mt-1 text-foreground font-semibold">{motivoDenegado(l)}</div>}
                                         {modo === "ABIERTO" && ficha.registradaPor && <div className="mt-1 text-foreground">Registrada por {({ padron: "el padrón", visita: "una visita en curso", invitacion: "una invitación vigente", lista_blanca: "la lista blanca" } as Record<string, string>)[ficha.registradaPor] || ficha.registradaPor}</div>}
                                     </div>

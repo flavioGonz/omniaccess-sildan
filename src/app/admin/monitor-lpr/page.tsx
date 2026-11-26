@@ -18,6 +18,7 @@ import { PlateManualButton } from "@/components/PlateManualButton";
 import { SugerenciaRelectura } from "@/components/monitor/SugerenciaRelectura";
 import { CorregirOmniDialog } from "@/components/monitor/CorregirOmniDialog";
 import { FichaMatriculaDrawer } from "@/components/monitor/FichaMatriculaDrawer";
+import { ColumnaInteriores } from "@/components/monitor/ColumnaInteriores";
 import { IntrusionPanel } from "@/components/IntrusionPanel";
 import { logosPorMatricula } from "@/app/actions/empresas";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
@@ -58,7 +59,8 @@ import {
     Home,
     UserPlus,
     PlayCircle,
-    Radar
+    Radar,
+    Waypoints,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
@@ -836,6 +838,12 @@ export default function MonitorLPR() {
     // (components/avisos, 20/10). Este monitor sólo conserva el contador de lecturas para revisar.
     const [eventsLoading, setEventsLoading] = useState(true);
     const [verDetecciones, setVerDetecciones] = useState(false);
+    /* La columna de las interiores (26/11): se muestra si hay cámaras interiores y no se la ocultó.
+       Se recuerda por navegador; es una preferencia de quien mira, no del sistema. */
+    const [verInteriores, setVerInteriores] = useState(true);
+    useEffect(() => { try { if (localStorage.getItem("monitorLpr.interiores") === "0") setTimeout(() => setVerInteriores(false), 0); } catch { } }, []);
+    const cambiarInteriores = (v: boolean) => { setVerInteriores(v); try { localStorage.setItem("monitorLpr.interiores", v ? "1" : "0"); } catch { } };
+    const [fichaInterior, setFichaInterior] = useState<string | null>(null);
     /** La detección abierta desde el cajón. Al cerrarla se vuelve al cajón, como en la ficha del evento. */
     const [fichaDet, setFichaDet] = useState<DetItem | null>(null);
     const [geomDet, setGeomDet] = useState<Geom | undefined>(undefined);
@@ -1125,7 +1133,10 @@ export default function MonitorLPR() {
     }, [claveIds, fa.filtrando, devices.length]); // eslint-disable-line react-hooks/exhaustive-deps
     // Las LPR de adentro (sentido INTERIOR, 26/11) se ven junto a las entradas, marcadas: su cuadro y su
     // última lectura, pero sus lecturas no entran a la lista ni a la foto grande de «Entradas».
-    const entryCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'ENTRY' || x.direction === 'INTERIOR'), [lprDevs]);
+    const interiorCams = useMemo(() => (lprDevs as { id: string; direction?: string }[]).filter((x) => x.direction === 'INTERIOR'), [lprDevs]);
+    const columnaInterior = verInteriores && interiorCams.length > 0;
+    // Con la columna del centro a la vista, las interiores viven ahí; oculta, vuelven junto a las entradas.
+    const entryCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'ENTRY' || (!columnaInterior && x.direction === 'INTERIOR')), [lprDevs, columnaInterior]);
     const exitCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'EXIT'), [lprDevs]);
     /*
      * La doble verificación de OmniVision llega después que la NO_LEIDA: se pregunta cada pocos
@@ -1253,6 +1264,12 @@ export default function MonitorLPR() {
                         {/* Las acciones: un solo grupo, un solo alto, la misma superficie que los filtros. */}
                         <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5">
                             {/* Las detecciones de las cámaras (cruces, zonas) vivían en la columna del centro; ahora en un cajón. */}
+                            {interiorCams.length > 0 && (
+                                <button onClick={() => cambiarInteriores(!verInteriores)} aria-pressed={verInteriores} title={verInteriores ? "Ocultar la columna de interiores" : "Mostrar la columna de interiores"}
+                                    className={cn("h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors", verInteriores ? "bg-background text-violet-500" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
+                                    <Waypoints size={15} /><span className="hidden 2xl:inline">Interiores</span>
+                                </button>
+                            )}
                             <button onClick={() => setVerDetecciones(true)} title="Detecciones de las cámaras (cruces de línea, zonas)" className="relative h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
                                 <Radar size={15} /><span className="hidden 2xl:inline">Detecciones</span>
                                 {/* Cámaras que esperan una decisión (sin confirmar o confirmadas sin resolver). */}
@@ -1283,10 +1300,14 @@ export default function MonitorLPR() {
                     </div>
                 </div>
 
-                {/* Dos columnas, un sentido cada una. */}
-                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border overflow-hidden">
+                {/* Dos columnas, un sentido cada una; con interiores, la del centro es de ellas (26/11). */}
+                <div className={cn("flex-1 min-h-0 grid grid-cols-1 divide-y lg:divide-y-0 lg:divide-x divide-border overflow-hidden", columnaInterior ? "lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.62fr)_minmax(0,1fr)]" : "lg:grid-cols-2")}>
                     <ColumnaSentido dir="ENTRY" camaras={entryCams} eventos={entryEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
                         cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={plazasOn ? setPlazaDe : undefined} logos={logos} />
+                    {columnaInterior && (
+                        <ColumnaInteriores camaras={interiorCams.length} alOcultar={() => cambiarInteriores(false)} alInvestigar={setFichaInterior}
+                            tiles={interiorCams.map((d) => <CamTile key={d.id} dev={d} accent="violet" ev={lastByCam[d.id] || lastCapByDev[d.id]} onRegister={openRegister} className="aspect-video" />)} />
+                    )}
                     <ColumnaSentido dir="EXIT" camaras={exitCams} eventos={exitEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
                         cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={plazasOn ? setPlazaDe : undefined} logos={logos} />
                 </div>
@@ -1300,6 +1321,7 @@ export default function MonitorLPR() {
                     alCambiar={() => getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => { })} />}
                 {/* Registrar pregunta primero qué es la matrícula (persona del barrio o seguimiento)
                     y recién ahí abre el cajón que corresponde. Antes abría el alta vieja de persona. */}
+                <FichaMatriculaDrawer plate={fichaInterior} abierto={!!fichaInterior} onCerrar={() => setFichaInterior(null)} />
                 <RegistrarMatricula plate={registerOpen ? registerInit?.plate || null : null}
                     alCerrar={() => { setRegisterOpen(false); setRegisterInit(undefined); }}
                     alTerminar={() => { loadInitialData(); refreshWatch(); }}

@@ -10,6 +10,7 @@ import { identidadDeLecturas } from "@/lib/monitor/identidad";
 import { getComportamientoPadron } from "@/app/actions/padron";
 import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
 import { calcularPresencia } from "@/lib/presencia";
+import { leerInterioresAdentro } from "@/lib/lpr-interiores";
 import { contextoDeLectura, busquedaPrendida } from "@/lib/contexto-vigilancia";
 
 export const dynamic = "force-dynamic";
@@ -153,5 +154,7 @@ export async function GET() {
         logos: await logosDeMatriculas().catch(() => ({})),
         // Los interruptores de las pestañas de Usuarios («Cómo se comporta»): color y sonido por clase.
         comportamiento: await getComportamientoPadron(),
+        // Las chapas adentro vistas por las LPR interiores (26/11): el bloque «Interiores» de la pared.
+        interiores: await leerInterioresAdentro().then((r) => (r.camaras ? { camaras: r.camaras, chapas: r.chapas.slice(0, 24) } : null)).catch(() => null),
     }, { headers: SIN_CACHE });
 }
