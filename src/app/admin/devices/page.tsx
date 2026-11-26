@@ -102,6 +102,8 @@ import {
 import { MoreHorizontal, DownloadCloud, UploadCloud, Info, PowerOff, Crosshair } from "lucide-react";
 import { Radar } from "lucide-react";
 import { DescubrirRed } from "@/components/devices/DescubrirRed";
+import { ExportarEquipos } from "@/components/devices/ExportarEquipos";
+import { useSessionRole } from "@/hooks/useSessionRole";
 import { getDevicesWithAnalytics } from "@/app/actions/detections";
 import {
     Tooltip,
@@ -387,6 +389,9 @@ export default function DevicesPage() {
     const [alta, setAlta] = useState<null | "lpr" | "intrusion" | "nvr" | "otro">(null);
     /** El barrido de red, y con qué datos arranca el alta de lo que se encontró (17/11). */
     const [descubriendo, setDescubriendo] = useState(false);
+    /** Exportar el inventario: PDF, Excel o paquete para otra instancia (26/11, components/devices/ExportarEquipos). */
+    const [exportando, setExportando] = useState(false);
+    const sesion = useSessionRole();
     const [altaInicial, setAltaInicial] = useState<{ ip?: string; brand?: string; deviceType?: string; name?: string } | undefined>(undefined);
     const [editando, setEditando] = useState<any>(null);
     /** Un contador de filas tiene su propia ficha (CajonContadorFila), no la de las cámaras ni el formulario viejo. */
@@ -642,6 +647,11 @@ export default function DevicesPage() {
                         data-tooltip-id="tt-grab" data-tooltip-content="Descubrir equipos en la red: le manda un ping a cada dirección del rango y te dice cuáles ya están dadas de alta y cuáles no."
                         className="h-10 w-10 rounded-xl grid place-items-center border border-border/60 bg-background/70 hover:bg-accent hover:border-border transition-colors">
                         <Radar size={17} className="text-sky-500" />
+                    </button>
+                    <button onClick={() => setExportando(true)}
+                        data-tooltip-id="tt-grab" data-tooltip-content="Exportar: el inventario de equipos en PDF o Excel (con tapa, grabadores, discos y retención) o un paquete para cargarlos en otra instancia de OmniAccess."
+                        className="h-10 w-10 rounded-xl grid place-items-center border border-border/60 bg-background/70 hover:bg-accent hover:border-border transition-colors">
+                        <DownloadIco size={17} className="text-[var(--accion)]" />
                     </button>
                     <button onClick={() => setPedirHora(devices.filter((d) => ["LPR_CAMERA", "NVR"].includes(d.deviceType) && ["HIKVISION", "DAHUA"].includes(d.brand)))}
                         data-tooltip-id="tt-grab" data-tooltip-content="Sincronizar hora: muestra la hora y el desfase de cada cámara LPR y NVR y pregunta antes de poner la hora del servidor."
@@ -1176,6 +1186,7 @@ export default function DevicesPage() {
             <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} inicial={altaInicial}
                 alCambiarAbierto={(v) => { if (!v) { setAlta(null); setAltaInicial(undefined); } }} />
 
+            <ExportarEquipos abierto={exportando} alCerrar={() => setExportando(false)} puedeClaves={sesion.tiene("dispositivos.editar")} />
             <DescubrirRed abierto={descubriendo} alCerrar={() => setDescubriendo(false)}
                 alDarDeAlta={(d) => {
                     // El alta general y no la guiada: lo descubierto puede ser cualquier cosa, y la
