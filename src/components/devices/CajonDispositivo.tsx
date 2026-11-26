@@ -1158,29 +1158,34 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                 {bloqueBusquedaGrabacion}
                             </Bloque>
                         )}
-                        {tipo === "CAMERA" && alCalibrar && (
-                            <Bloque titulo="Analítica de intrusión" icono={Crosshair} ayuda="Línea de cruce, zona, sentido, sensibilidad, objetivo y aviso a OmniAccess, sobre el video en vivo.">
-                                <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrar(device); }} className="gap-1.5 text-red-500 border-red-500/30"><Crosshair size={15} /> Abrir el calibrador</Button>
-                            </Bloque>
-                        )}
-                        {/* 21/10, Nico: «debés poder abrir el calibrador desde el drawer». Era sólo desde la tabla. */}
-                        {tipo === "LPR_CAMERA" && alCalibrarImagen && device?.id && (
-                            <Bloque titulo="Calibración de imagen" icono={Crosshair} ayuda="Obturador, ganancia, anti-brillo, WDR, filtro IR, foco, zoom y la línea de captura ANPR, sobre el video en vivo. Cada cambio pide confirmación y es reversible.">
-                                <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrarImagen(device); }} className="gap-1.5"><Crosshair size={15} /> Abrir el calibrador</Button>
-                            </Bloque>
-                        )}
-                        {device?.deviceType === "LPR_INTERIOR" && alCalibrarLectura && device?.id && (
-                            <Bloque titulo="Lectura de matrículas" icono={ScanLine} ayuda="Qué dispara la lectura de omni-lpr (cambio de imagen, OmniVision, línea o zona de la cámara), la zona de interés, la línea de pasada y dónde estacionan.">
-                                <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrarLectura(device); }} className="gap-1.5"><ScanLine size={15} /> Abrir el calibrador de lectura</Button>
-                            </Bloque>
-                        )}
-                        {/* 23/10: una cámara catalogada como LPR de OmniAccess puede ser a la vez la perimetral
-                            (AcuSense). Su intrusión se calibra igual que la de una CAMERA. */}
-                        {device?.deviceType === "LPR_INTERIOR" && alCalibrar && device?.id && (device.brand === "HIKVISION" || device.brand === "DAHUA") && (
-                            <Bloque titulo="Analítica de intrusión" icono={Crosshair} ayuda="La analítica de la propia cámara: línea de cruce, zona, sentido, sensibilidad, objetivo y aviso a OmniAccess. La línea y la zona son las mismas que puede usar el disparo de la lectura: si la lectura se dispara por línea o zona de la cámara, cambiarlas acá cambia también el disparo.">
-                                <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrar(device); }} className="gap-1.5 text-red-500 border-red-500/30"><Crosshair size={15} /> Abrir el calibrador de intrusión</Button>
-                            </Bloque>
-                        )}
+                        {/*
+                         * Un solo calibrador (26/11, Nico: «hay como tres calibradores distintos»): imagen, lectura
+                         * LPR e intrusión en la misma pantalla. Cada chip lo abre en su módulo; el calibrador decide
+                         * qué corresponde a esta cámara.
+                         */}
+                        {device?.id && ["CAMERA", "LPR_CAMERA", "LPR_INTERIOR"].includes(String(tipo)) && (device.brand === "HIKVISION" || device.brand === "DAHUA") && (alCalibrar || alCalibrarImagen || alCalibrarLectura) && (() => {
+                            const esInterior = device.deviceType === "LPR_INTERIOR";
+                            const mods = [
+                                device.brand === "HIKVISION" && alCalibrarImagen ? { k: "imagen", t: "Imagen", d: "exposición, IR, foco" + (device.deviceType === "LPR_CAMERA" ? ", región ANPR" : ""), I: Crosshair, ir: () => alCalibrarImagen(device) } : null,
+                                esInterior && alCalibrarLectura ? { k: "lectura", t: "Lectura LPR", d: "carriles, zonas, líneas y disparo", I: ScanLine, ir: () => alCalibrarLectura(device) } : null,
+                                (tipo === "CAMERA" || esInterior) && alCalibrar ? { k: "intrusion", t: "Intrusión", d: "líneas y zonas de la cámara, aviso", I: Radar, ir: () => alCalibrar(device) } : null,
+                            ].filter(Boolean) as { k: string; t: string; d: string; I: typeof Crosshair; ir: () => void }[];
+                            if (!mods.length) return null;
+                            return (
+                                <Bloque titulo="Calibrador" icono={Crosshair} ayuda="Una sola pantalla, a pantalla completa, con lo que corresponde a esta cámara. Se dibuja sobre una foto o sobre el vivo.">
+                                    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${mods.length}, minmax(0, 1fr))` }}>
+                                        {mods.map((x) => (
+                                            <button key={x.k} type="button" onClick={() => { onOpenChange(false); x.ir(); }}
+                                                className="flex flex-col items-start gap-1 rounded-[10px] border border-border p-3 text-left transition-colors hover:border-[var(--accion)] hover:bg-[color-mix(in_oklab,var(--accion)_5%,transparent)]">
+                                                <span className="grid h-7 w-7 place-items-center rounded-md bg-muted text-muted-foreground"><x.I size={14} /></span>
+                                                <span className="text-[12.5px] font-semibold">{x.t}</span>
+                                                <span className="text-[11px] leading-snug text-muted-foreground">{x.d}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </Bloque>
+                            );
+                        })()}
                         {tipo === "NVR" && alImportar && (
                             <Bloque titulo="Cámaras del NVR" icono={Download} ayuda="Lee los canales y deja elegir qué es cada cámara (LPR o intrusión) antes de crearla. Las que ya existen sólo se vinculan a su grabación.">
                                 <Button variant="outline" onClick={() => { onOpenChange(false); alImportar(device); }} className="gap-1.5"><Download size={15} /> Importar y clasificar cámaras</Button>

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { getIntrusionCameras, type IntrusionCam } from "@/app/actions/detections";
 import { deleteDevice } from "@/app/actions/devices";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
-import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
+import { Calibrador } from "@/components/calibrador/Calibrador";
 import { AlertasFila, type AlertaEquipo } from "@/components/devices/AlertasFila";
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
 import { arrastrarEquipos } from "@/components/devices/ArbolAreas";
@@ -136,7 +136,7 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                 </table>
             </div>
             <Tooltip id="tt-intr" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />
-            {calibrando && <IntrusionCalibrator device={calibrando} onClose={() => { setCalibrando(null); cargar(); }} />}
+            {calibrando && <Calibrador device={calibrando} modulo="intrusion" onClose={() => { setCalibrando(null); cargar(); }} />}
         </div>
     );
 }

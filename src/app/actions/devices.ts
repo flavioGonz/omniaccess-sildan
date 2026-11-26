@@ -382,6 +382,20 @@ export async function guardarComprobado(id: string, datos: { mac?: string | null
     return { ok: true };
 }
 
+/**
+ * Lo que el calibrador único necesita saber de un equipo para decidir qué módulos ofrece (26/11):
+ * tipo, marca, modos y si tiene video. Los que lo abren a veces pasan un objeto recortado (el
+ * monitor de intrusión manda id, nombre y tipo): el calibrador pregunta acá y no adivina.
+ */
+export async function equipoParaCalibrar(id: string) {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession())) return null;
+    const d = await prisma.device.findUnique({ where: { id }, select: { id: true, name: true, deviceType: true, brand: true, deviceModel: true, direction: true, trackAcceso: true, lprVerifica: true, lprAbre: true, intrusionModo: true, ip: true, rtspUrl: true } });
+    if (!d) return null;
+    const { rtspUrl, ...resto } = d;
+    return { ...resto, deviceType: String(d.deviceType), brand: String(d.brand), direction: String(d.direction), tieneRtsp: !!rtspUrl };
+}
+
 export async function probeDeviceInfo(input: { ip: string; username?: string; password?: string; authType?: string; brand?: string; }) {
     const ip = (input.ip || "").trim();
     if (!ip) return { ok: false, error: "IP requerida" };

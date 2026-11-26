@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Activity, AlertTriangle, Check, ExternalLink, HardDrive, MemoryStick, Network, Plus, RefreshCw, ScanSearch, SlidersHorizontal, Sparkles, Timer, Wifi, X } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
-import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
+import { Calibrador } from "@/components/calibrador/Calibrador";
 import { TIPOS_REGLA, TIPOS_RETIRADOS, type ReglaVision } from "@/lib/vision-reglas";
 import { CajonCerrar } from "@/components/ui/cajon";
 import { cn } from "@/lib/utils";
@@ -240,7 +240,7 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
 
     return (
         <div className="relative bg-[#0b0d11] text-white">
-            {calibrando && <IntrusionCalibrator device={calibrando} onClose={() => { const id = calibrando.id; setCalibrando(null); leerGeomCamara(id); }} />}
+            {calibrando && <Calibrador device={calibrando} modulo="intrusion" onClose={() => { const id = calibrando.id; setCalibrando(null); leerGeomCamara(id); }} />}
             {/* Título y cerrar */}
             <div className="flex items-start gap-3 px-5 pt-4">
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-white/[0.07] text-[var(--accion-en-oscuro)]"><HardDrive size={19} /></span>

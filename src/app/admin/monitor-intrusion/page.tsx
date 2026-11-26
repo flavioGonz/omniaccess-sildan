@@ -9,8 +9,7 @@ import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, 
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { useClipEvento } from "@/lib/clip-evento";
 import { cn } from "@/lib/utils";
-import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
-import { InteriorCalibrator } from "@/components/InteriorCalibrator";
+import { Calibrador } from "@/components/calibrador/Calibrador";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
 import { PlaybackTimeline } from "@/components/PlaybackTimeline";
 import { Scrub } from "@/components/Scrub";
@@ -1073,8 +1072,8 @@ export default function MonitorIntrusion() {
                     </DialogContent>
                 </Dialog>
             )}
-            {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && calibQue === "lectura" && <InteriorCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
-            {calibrateDev && (calibrateDev.tipo !== "LPR_INTERIOR" || calibQue === "intrusion") && <IntrusionCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
+            {/* El calibrador único (26/11): abre en lectura o intrusión según desde dónde se pidió. */}
+            {calibrateDev && <Calibrador device={calibrateDev} modulo={calibrateDev.tipo === "LPR_INTERIOR" && calibQue === "lectura" ? "lectura" : "intrusion"} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
             {horarioDev && <HorarioArmadoDialog cam={horarioDev.cam} todasLasCamaras={horarioDev.todas} actual={horarioDev.cam ? horarios[horarioDev.cam.id] ?? null : null} general={horarioGeneral} camaras={horarios} onClose={() => setHorarioDev(null)} onAplicado={cargarHorarios} />}
             {/* El servidor de alarma de la cámara, en un cajón (21/10: era un diálogo con el destino escrito a mano). */}
             <CajonServidorAlarma cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { if (prev.has(id) === ok) return prev; const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />
