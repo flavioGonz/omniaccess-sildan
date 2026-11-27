@@ -1,6 +1,9 @@
 /**
  * POST /api/devices/sync-time
- *   body: { deviceId?: string, all?: boolean, mode?: "now" | "ntp", ntpServer?: string, tz?: string }
+ *   body: { deviceId?: string, ids?: string[], all?: boolean, mode?: "now" | "ntp", ntpServer?: string, tz?: string }
+ *
+ *  `ids` (27/11): el cajón «Sincronizar la hora» manda los equipos elegidos así, y la ruta sólo
+ *  leía `deviceId` o `all`: contestaba 400 «sin dispositivos» y no ponía la hora en ninguno.
  *
  *  mode "now" (default): empuja la hora ACTUAL del servidor (America/Montevideo) al
  *    equipo por ISAPI (timeMode=manual + localTime). Confiable y OFFLINE-SAFE — la
@@ -11,13 +14,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authenticatedRequest } from "@/lib/digest-auth";
+import { getSession } from "@/app/actions/auth";
 
 export const dynamic = "force-dynamic";
 const TZ = "America/Montevideo";
 const TZ_HIK = "CST+3:00:00";
 const TIME = "/ISAPI/System/time";
 
-function auth(d: any) { return { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST" }; }
+function auth(d: any) { return { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST", httpPort: d.httpPort }; }
+const SEL = { id: true, ip: true, username: true, password: true, authType: true, httpPort: true, brand: true } as const;
+/** Por qué falló, dicho para quien mira la tabla (no «ISAPI error»). */
+const motivo = (e: { name?: string; message?: string; code?: string; response?: { status?: number } }) => e?.name === "EquipoSoloLectura" ? e.message : e?.response?.status === 401 ? "El equipo rechazó el usuario o la clave." : e?.response?.status ? `El equipo contestó ${e.response.status}.` : e?.code ? `El equipo no contestó (${e.code}).` : e?.message || "No se pudo.";
 
 /** Hora local de Montevideo en ISO con offset -03:00 (independiente del TZ del server) */
 function montevideoNow(): string {
@@ -35,6 +42,12 @@ function setTag(xml: string, tag: string, val: string): string {
 
 async function syncOne(d: any, mode: string, ntpServer: string): Promise<any> {
     try {
+        if (String(d.brand).toUpperCase() === "DAHUA") {
+            // Dahua: la hora local por CGI (el equipo la toma en su huso configurado).
+            const local = montevideoNow().slice(0, 19).replace("T", " ");
+            await authenticatedRequest("GET", `/cgi-bin/global.cgi?action=setCurrentTime&time=${encodeURIComponent(local)}`, auth(d), { responseType: "text", timeout: 8000 });
+            return { id: d.id, ok: true, mode: "now", localTime: local };
+        }
         let xml: string = await authenticatedRequest("GET", TIME, auth(d), { responseType: "text", accept: "application/xml", timeout: 6000 });
         if (mode === "ntp") {
             xml = setTag(xml, "timeMode", "NTP");
@@ -53,25 +66,33 @@ async function syncOne(d: any, mode: string, ntpServer: string): Promise<any> {
         await authenticatedRequest("PUT", TIME, auth(d), { data: xml, contentType: "application/xml", responseType: "text", timeout: 8000 });
         return { id: d.id, ok: true, mode: "now", localTime: local };
     } catch (e: any) {
-        return { id: d.id, ok: false, error: e?.message || "ISAPI error" };
+        return { id: d.id, ok: false, error: motivo(e) };
     }
 }
 
 export async function POST(req: NextRequest) {
+    const s = await getSession();
+    if (!s) return NextResponse.json({ ok: false, error: "Hace falta una sesión del panel." }, { status: 401 });
+    const { permisosDeSesion } = await import("@/lib/permisos");
+    if (!permisosDeSesion(s as Parameters<typeof permisosDeSesion>[0]).includes("dispositivos.editar")) return NextResponse.json({ ok: false, error: "Hace falta el permiso Editar dispositivos." }, { status: 403 });
     const body = await req.json().catch(() => ({}));
     const { deviceId, all, mode = "now", ntpServer = "192.168.1.16" } = body as any;
+    const crudos: unknown[] = Array.isArray((body as { ids?: unknown }).ids) ? (body as { ids: unknown[] }).ids : [];
+    const ids = crudos.filter((x): x is string => typeof x === "string").slice(0, 500);
     let devices: any[] = [];
     if (all) {
         devices = await prisma.device.findMany({
             // Las interiores también tienen reloj: "todas" eran todas menos ellas.
-            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "LPR_INTERIOR", "CAMERA", "NVR"] as any } },
-            select: { id: true, ip: true, username: true, password: true, authType: true },
+            where: { brand: { in: ["HIKVISION", "DAHUA"] as any }, deviceType: { in: ["LPR_CAMERA", "LPR_INTERIOR", "CAMERA", "NVR"] as any } },
+            select: SEL,
         });
+    } else if (ids.length) {
+        devices = await prisma.device.findMany({ where: { id: { in: ids } }, select: SEL });
     } else if (deviceId) {
-        const d = await prisma.device.findUnique({ where: { id: deviceId }, select: { id: true, ip: true, username: true, password: true, authType: true } });
+        const d = await prisma.device.findUnique({ where: { id: deviceId }, select: SEL });
         if (d) devices = [d];
     }
-    if (!devices.length) return NextResponse.json({ ok: false, error: "sin dispositivos" }, { status: 400 });
+    if (!devices.length) return NextResponse.json({ ok: false, error: "No llegó ningún equipo para sincronizar.", results: [] }, { status: 400 });
 
     const results = await Promise.all(devices.map((d) => syncOne(d, mode, ntpServer)));
     const okCount = results.filter((r) => r.ok).length;
