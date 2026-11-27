@@ -175,6 +175,8 @@ export function ListaEnVivo({ lecturas, conectado, activo, cambiar }: { lecturas
  */
 export function PilaCapturas({ lecturas, ahora, alResaltar }: { lecturas: LecturaViva[]; ahora: number; alResaltar: (l: LecturaViva | null) => void }) {
     const [ampliada, setAmpliada] = useState<LecturaViva | null>(null);
+    // Al ocultar la pila con una señalada, que no quede dibujada sobre la escena.
+    useEffect(() => () => alResaltar(null), [alResaltar]);
     return (
         <aside className="flex h-full w-[172px] shrink-0 flex-col" onMouseLeave={() => alResaltar(null)}>
             <div className="mb-2 flex items-center gap-1.5 px-0.5">

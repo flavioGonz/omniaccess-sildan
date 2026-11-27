@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, Image as ImageIcon, Video, RefreshCw, Aperture, ScanLine, Radar, MousePointer2, Save, RotateCcw, Camera, Keyboard, PanelRight } from "lucide-react";
+import { X, Image as ImageIcon, Video, RefreshCw, Aperture, ScanLine, Radar, MousePointer2, Save, RotateCcw, Camera, Keyboard, PanelRight, GalleryVerticalEnd } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { equipoParaCalibrar } from "@/app/actions/devices";
@@ -53,6 +53,8 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
     const [salir, setSalir] = useState(false);
     const [atajos, setAtajos] = useState(false);
     const [verPanel, setVerPanel] = useState(true);
+    /** La pila de capturas arranca oculta (27/11, Nico: «deben comenzar ocultas, me tapan la imagen para poder dibujar»). */
+    const [verPila, setVerPila] = useState(false);
     const [montado, setMontado] = useState(false);
     useEffect(() => { const t = setTimeout(() => setMontado(true), 0); return () => clearTimeout(t); }, []);
 
@@ -95,6 +97,7 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
             if (e.key.toLowerCase() === "v") m.setHerramienta(null);
             if (e.key.toLowerCase() === "f") setFondo((f) => (f === "imagen" ? "vivo" : "imagen"));
             if (e.key.toLowerCase() === "p") setVerPanel((v) => !v);
+            if (e.key.toLowerCase() === "c") setVerPila((v) => !v);
             const n = Number(e.key);
             if (n >= 1 && n <= m.dock.length) { const d = m.dock[n - 1]; if (d.deshabilitado) return; if (d.accion) d.accion(); else { m.setSeleccion(null); m.setHerramienta(m.herramienta === d.key ? null : d.key); } }
         };
@@ -162,6 +165,7 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
                     ))}
                     <span className="mx-0.5 h-6 w-px bg-foreground/10" />
                     {fondo === "imagen" && <button type="button" onClick={refrescar} title="Sacar una foto nueva" className="grid h-9 w-9 place-items-center rounded-full text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground"><RefreshCw size={15} /></button>}
+                    {m?.lateral && <button type="button" onClick={() => setVerPila((v) => !v)} title={verPila ? "Ocultar las últimas capturas (C)" : "Ver las últimas capturas (C)"} className={cn("grid h-9 w-9 place-items-center rounded-full hover:bg-foreground/[0.08] hover:text-foreground", verPila ? "bg-foreground/15 text-foreground" : "text-foreground/60")}><GalleryVerticalEnd size={15} /></button>}
                     <button type="button" onClick={() => setVerPanel((v) => !v)} title={verPanel ? "Plegar el panel (P)" : "Mostrar el panel (P)"} className={cn("grid h-9 w-9 place-items-center rounded-full hover:bg-foreground/[0.08] hover:text-foreground", verPanel ? "text-foreground/60" : "bg-foreground/15 text-foreground")}><PanelRight size={15} /></button>
                     <button type="button" onClick={() => setAtajos((v) => !v)} title="Atajos de teclado" className="grid h-9 w-9 place-items-center rounded-full text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground"><Keyboard size={15} /></button>
                     <button type="button" onClick={cerrar} title="Cerrar (Esc)" className="grid h-9 w-9 place-items-center rounded-full bg-foreground/[0.08] text-foreground/80 hover:bg-foreground/[0.16]"><X size={17} /></button>
@@ -169,11 +173,14 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
             </header>
 
             {/* ── La pila de últimas capturas, flotando junto al panel ── */}
-            {m?.lateral && (
-                <div className={cn("absolute bottom-24 top-[72px] z-20 rounded-[14px] p-2.5 transition-[right] duration-300", vidrio)} style={{ right: verPanel ? 396 : 12 }}>
-                    {m.lateral}
-                </div>
-            )}
+            <AnimatePresence initial={false}>
+                {m?.lateral && verPila && (
+                    <motion.div key="pila" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} transition={{ duration: 0.18 }}
+                        className={cn("absolute bottom-24 top-[72px] z-20 rounded-[14px] p-2.5 transition-[right] duration-300", vidrio)} style={{ right: verPanel ? 396 : 12 }}>
+                        {m.lateral}
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* ── El panel del módulo, flotando ── */}
             <AnimatePresence initial={false}>
@@ -222,7 +229,7 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
                 {atajos && (
                     <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className={cn("absolute top-[72px] z-40 w-[290px] rounded-[14px] p-4 text-[12px]", vidrio)} style={{ right: verPanel ? 396 : 12 }}>
                         <p className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-foreground/50">Atajos</p>
-                        {[["1 – 9", "Elegir herramienta"], ["V", "Volver a elegir"], ["Enter / doble clic", "Cerrar la figura"], ["Backspace", "Sacar el último punto"], ["Supr", "Borrar lo elegido"], ["Doble clic en un vértice", "Sacarlo"], ["«+» en un lado", "Agregar un vértice"], ["F", "Foto / vivo"], ["P", "Plegar / mostrar el panel"], ["Esc", "Cancelar · cerrar"]].map(([a, b]) => (
+                        {[["1 – 9", "Elegir herramienta"], ["V", "Volver a elegir"], ["Enter / doble clic", "Cerrar la figura"], ["Backspace", "Sacar el último punto"], ["Supr", "Borrar lo elegido"], ["Doble clic en un vértice", "Sacarlo"], ["«+» en un lado", "Agregar un vértice"], ["F", "Foto / vivo"], ["P", "Plegar / mostrar el panel"], ["C", "Ver / ocultar las capturas"], ["Esc", "Cancelar · cerrar"]].map(([a, b]) => (
                             <div key={a} className="flex items-center justify-between gap-3 py-1"><span className="text-foreground/70">{b}</span><kbd className="rounded-md bg-foreground/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-foreground/85">{a}</kbd></div>
                         ))}
                     </motion.div>
