@@ -81,7 +81,7 @@ export function ColumnaInteriores({ tiles, camaras, alOcultar, alInvestigar }: {
                 <div className={cn("grid gap-2", camaras > 1 ? "grid-cols-2" : "grid-cols-1")}>{tiles}</div>
             </div>
 
-            <div className="shrink-0 px-3 pt-3 pb-2 border-b border-border">
+            <div className="shrink-0 px-3 pt-2.5">
                 <div className="flex items-center gap-2">
                     <p className="flex items-center gap-1.5 text-[12px] font-bold"><Eye size={13} className="text-muted-foreground" /> Adentro ahora</p>
                     <button type="button" onClick={() => setOrden((o) => (o === "recientes" ? "tiempo" : "recientes"))}
@@ -89,14 +89,21 @@ export function ColumnaInteriores({ tiles, camaras, alOcultar, alInvestigar }: {
                         <ArrowDownUp size={12} /> {orden === "recientes" ? "Vistas recién" : "Más tiempo adentro"}
                     </button>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Filtrar">
-                    {FILTROS.map((f) => (
-                        <button key={f.v} type="button" role="radio" aria-checked={filtro === f.v} onClick={() => setFiltro(f.v)}
-                            className={cn("inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold transition-colors",
-                                filtro === f.v ? "border-[var(--accion)] bg-[var(--accion)] text-white" : "border-border text-muted-foreground hover:bg-accent hover:text-foreground")}>
-                            {f.r}<span className={cn("tabular-nums", filtro === f.v ? "text-white/80" : "text-muted-foreground/80")}>{f.n}</span>
-                        </button>
-                    ))}
+                {/* Los filtros como pestañas con su número (27/11, Nico: «no me gustan esos chips como
+                    controles de filtro»): una sola fila, el conteo grande y el nombre chico, y la elegida
+                    subrayada. Se lee como un resumen de quién está adentro antes de tocar nada. */}
+                <div className="mt-1 grid border-b border-border" style={{ gridTemplateColumns: `repeat(${FILTROS.length}, minmax(0, 1fr))` }} role="tablist" aria-label="Filtrar">
+                    {FILTROS.map((f) => {
+                        const activa = filtro === f.v;
+                        return (
+                            <button key={f.v} type="button" role="tab" aria-selected={activa} onClick={() => setFiltro(f.v)}
+                                className={cn("-mb-px flex min-w-0 flex-col items-center gap-0.5 border-b-2 px-1 pb-2 pt-1.5 transition-colors",
+                                    activa ? "border-[var(--accion)] text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+                                <span className={cn("text-[17px] font-bold leading-none tabular-nums", activa && "text-[var(--accion)]", f.v === "listas" && f.n > 0 && !activa && "tono-mal")}>{f.n}</span>
+                                <span className="w-full truncate text-center text-[10.5px] font-semibold">{f.r}</span>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 
