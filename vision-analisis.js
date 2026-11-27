@@ -379,6 +379,43 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
         return true;
     }
 
+    /**
+     * Las lecturas de omni-lpr (PlateSighting TRACK: LPR interiores y las que lee OmniVision), con
+     * las mismas siluetas y atributos que una lectura de cámara (27/11, Nico: «ya sea de la cámara o
+     * el nuestro, dibujar las siluetas y la matrícula como en los eventos LPR»). Son pocas por día.
+     * Se guardan en AnalisisFoto con la clave `s:<id>` (no es un AccessEvent; ninguna consulta que
+     * cruce AnalisisFoto con AccessEvent la levanta).
+     */
+    async function unaLecturaOmni() {
+        const filas = await prisma.$queryRaw`
+            SELECT s.id, s."snapshotUrl" AS foto, s.timestamp
+            FROM "PlateSighting" s LEFT JOIN "AnalisisFoto" a ON a."accessEventId" = 's:' || s.id
+            WHERE a.id IS NULL AND s.source = 'TRACK' AND s."snapshotUrl" IS NOT NULL
+              AND s.timestamp > ${sinZona(Date.now() - VENTANA_LPR_MS)}::timestamp
+            ORDER BY s.timestamp DESC LIMIT 1`;
+        const ev = filas[0];
+        if (!ev) return false;
+        const clave = `s:${ev.id}`;
+        const t0 = Date.now();
+        const f = await foto(ev.foto);
+        if (!f) return false;
+        const guardar = (data) => prisma.analisisFoto.upsert({ where: { accessEventId: clave }, create: { accessEventId: clave, ...data }, update: data });
+        if (f.falta) {
+            if (Date.now() - new Date(ev.timestamp).getTime() < FOTO_ESPERA_MS) return false;
+            await guardar({ estado: "SIN_FOTO" }); contadores.sinFoto++;
+            return true;
+        }
+        try {
+            const a = await analizar(f.jpeg, estado().atributos);
+            await guardar({ estado: "OK", analisis: a, ms: Date.now() - t0 });
+            contadores.lecturas++; contadores.msUltima = Date.now() - t0;
+        } catch (e) {
+            await guardar({ estado: "ERROR", error: String(e.message).slice(0, 300), ms: Date.now() - t0 }).catch(() => null);
+            contadores.errores++; contadores.ultimoError = e.message;
+        }
+        return true;
+    }
+
     async function unaLectura() {
         const filas = await prisma.$queryRaw`
             SELECT e.id, e."snapshotPath" AS foto, e.timestamp
@@ -444,6 +481,7 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
                     // Los eventos de central, después: el operador los mira con las fotos de cada cámara de la zona.
                     if (!hizo && e.verificar) hizo = await unaCentral();
                     if (!hizo && e.lpr) hizo = await unaLectura();
+                    if (!hizo && e.lpr) hizo = await unaLecturaOmni();
                     if (!hizo && e.huellas) hizo = await unaHuella();
                     // En los ratos libres, el taxi de las huellas que ya estaban (sólo cuentas, sin GPU).
                     if (!hizo && e.huellas) hizo = await unRepasoServicio();

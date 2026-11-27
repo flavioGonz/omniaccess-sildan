@@ -1212,7 +1212,9 @@ async function resolverRafaga(est) {
             const url = await guardarCuadro(cuadros[mejor.cuadro] || cuadros[0], v.plate);
             const resp = await avisarAvistamiento(cam, {
                 ...v,
-                recuadro: recuadroEnvio,
+                // El recuadro en el cuadro LEÍDO (el que se guarda como foto, ya recortado), no en el
+                // cuadro entero: la ficha lo dibuja sobre esa foto (27/11). La geometría usa el entero.
+                recuadro: mejor.recuadro || null,
                 enPuerta: puerta.pasa,
                 puerta: puerta.motivo,
                 tipoEvento: tipoCarril,

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cuandoViene, rotuloServicio } from "@/lib/servicios-lote";
 import { observacion, perfilDe, noSeParece, rectDeDetalles, type ObjetoVisto, type PerfilVision } from "@/lib/perfil-vision";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
@@ -67,6 +68,11 @@ function perfilDePasos(pasos: { timestamp: Date; direction: string | null }[], p
     };
 }
 
+/** El centro del recuadro de una lectura de omni-lpr ({x,y,w,h} en fracciones de su foto). */
+function centroDeBbox(bbox: string | null | undefined): { cx: number; cy: number } | null {
+    try { const b = JSON.parse(String(bbox || "")); return b && b.w > 0 && b.h > 0 ? { cx: b.x + b.w / 2, cy: b.y + b.h / 2 } : null; } catch { return null; }
+}
+
 /** Cuántas lecturas anteriores arman el perfil de OmniVision: las últimas, de los últimos 90 días. */
 const PERFIL_LECTURAS = 60;
 
@@ -75,6 +81,8 @@ export async function GET(req: NextRequest) {
     if (!auth.authenticated) return unauthorizedResponse();
     const sp = req.nextUrl.searchParams;
     const eventoId = sp.get("evento") || "";
+    /** Una lectura de omni-lpr (PlateSighting): su recuadro y lo que vio OmniVision en su foto (`s:<id>`). */
+    const lecturaId = sp.get("lectura") || "";
     const momento = new Date(sp.get("momento") || Date.now());
     let plate = normalizarMatricula(sp.get("plate"));
 
@@ -84,6 +92,10 @@ export async function GET(req: NextRequest) {
         relecturasDe([eventoId], (clave) => `/api/vision/imagen/${clave}`).catch(() => new Map()),
     ]) : [null, null, new Map()];
     const relectura = relecturas.get(eventoId) || null;
+    const [lectura, analisisLectura] = lecturaId ? await Promise.all([
+        prisma.plateSighting.findUnique({ where: { id: lecturaId }, select: { bbox: true, reads: true, confidence: true, deviceId: true, cameraName: true } }).catch(() => null),
+        prisma.analisisFoto.findUnique({ where: { accessEventId: `s:${lecturaId}` }, select: { estado: true, analisis: true } }).catch(() => null),
+    ]) : [null, null];
 
     // NO_LEIDA releída por OmniVision: la ficha sale de la chapa sugerida (si es LEIDA o DUDOSA).
     let porRelectura = false;
@@ -107,24 +119,31 @@ export async function GET(req: NextRequest) {
     ]) : [null, null, null, null, []];
 
     const u = usuarioEvento || vehiculo?.user || credencial?.user || null;
+    /* Un proveedor de un lote (jardinero, piscinero) que viene en este vehículo: la ficha dice de
+       qué lote es y cuándo viene (27/11, Nico: «resaltar los datos del padrón, residente, proveedor»). */
+    const sv = conChapa ? await prisma.servicioLote.findFirst({
+        where: { chapa: plate, estado: "ACTIVO" }, orderBy: { updatedAt: "desc" },
+        select: { tipo: true, nombre: true, dias: true, desde: true, hasta: true, autorizado: true, unit: { select: { name: true } } },
+    }).catch(() => null) : null;
     const v = (visitas as any[]).find((x) => (x.sale ? +x.sale : Date.now()) >= +momento - MARGEN_VISITA_MS) || null;
     const tipos = v ? (await leerAjustesVisitas().catch(() => null))?.tipos : null;
     const empresa = conChapa ? (await empresasDeLecturas([{ clave: "x", plate, momento }]).catch(() => new Map())).get("x") || null : null;
 
-    const ficha = (vehiculo || u || vigilancia || v) ? {
+    const ficha = (vehiculo || u || vigilancia || v || sv) ? {
         marca: vehiculo?.brand || null, modelo: vehiculo?.model || null, color: vehiculo?.color || null, tipo: vehiculo?.type || null,
         dueno: u ? {
             id: u.id, nombre: u.name, telefono: u.phone || null, unidad: u.unit?.name || null,
             apartamento: u.apartment || null, cochera: u.parkingSlot?.label || null, rol: String(u.role),
         } : null,
         vigilancia: vigilancia ? { etiqueta: vigilancia.label, categoria: normalizeWatchCat(vigilancia.category) || vigilancia.category, color: vigilancia.color, motivo: vigilancia.motivo } : null,
+        proveedor: sv ? { tipo: rotuloServicio(sv.tipo), nombre: sv.nombre || null, lote: sv.unit?.name || null, cuando: cuandoViene(sv) || null, entra: sv.autorizado } : null,
         visita: v ? {
             tipo: tipos?.find((t) => t.clave === v.tipo)?.nombre || v.tipo, lote: v.loteNombre, nombre: v.nombre, empresa: v.empresa,
             entra: v.entra.toISOString(), vence: v.vence.toISOString(), sale: v.sale ? v.sale.toISOString() : null,
         } : null,
     } : null;
 
-    const an = analisis?.estado === "OK" ? (analisis.analisis as any) : null;
+    const an = (analisis?.estado === "OK" ? analisis.analisis : analisisLectura?.estado === "OK" ? analisisLectura.analisis : null) as any;
 
     /*
      * Cómo es el vehículo de esta chapa según OmniVision (lib/perfil-vision): la mayoría de color y
@@ -139,7 +158,7 @@ export async function GET(req: NextRequest) {
              ORDER BY e.timestamp DESC LIMIT ${PERFIL_LECTURAS}`.catch(() => []);
         const obs = previas.filter((f) => f.id !== eventoId).map((f) => observacion(f.analisis?.objetos || [], rectDeDetalles(f.details))).filter((o): o is NonNullable<typeof o> => !!o);
         const p = perfilDe(obs);
-        const esta = an ? observacion(an.objetos || [], rectDeDetalles(evento?.details)) : null;
+        const esta = an ? observacion(an.objetos || [], rectDeDetalles(evento?.details) || centroDeBbox(lectura?.bbox)) : null;
         if (p.lecturas || esta) perfilVision = { ...p, noSeParece: noSeParece(esta, p), esta: esta ? { color: esta.color, carroceria: esta.carroceria } : null };
     }
 
@@ -178,7 +197,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
         // La cámara del evento: hay pantallas que mandan el evento sin el equipo incluido (las
         // lecturas de una LPR interior en el monitor), y el visor decía «Cámara desconocida».
-        camara: (evento as any)?.device?.name || (evento as any)?.location || null, deviceId: (evento as any)?.deviceId || null,
+        camara: (evento as any)?.device?.name || (evento as any)?.location || lectura?.cameraName || null, deviceId: (evento as any)?.deviceId || lectura?.deviceId || null,
+        // La lectura de omni-lpr: dónde está la chapa en su foto y cuántos cuadros la confirmaron.
+        lectura: lectura ? { bbox: lectura.bbox, reads: lectura.reads, confianza: lectura.confidence } : null,
         plate: conChapa ? plate : null,
         porRelectura,
         ficha,

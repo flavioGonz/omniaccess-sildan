@@ -51,6 +51,20 @@ type Props = {
     alCerrar?: () => void;
 };
 
+/** «PlateRect: x/y/w/h» (0-1000) del webhook ANPR, como el recuadro en fracciones que dibuja el visor. */
+function bboxDePlateRect(details?: string | null): string | null {
+    const m = String(details || "").match(/PlateRect:\s*(\d+)\/(\d+)\/(\d+)\/(\d+)/);
+    if (!m) return null;
+    const [x, y, w, h] = m.slice(1).map((n) => Number(n) / 1000);
+    return w > 0 && h > 0 ? JSON.stringify({ x, y, w, h }) : null;
+}
+
+/** «Confianza: 90%» del detalle (ANPR de la cámara u omni-lpr), como fracción. */
+function confianzaDeDetalles(details?: string | null): number | null {
+    const m = String(details || "").match(/Confianza:\s*(\d{1,3})\s*%/i);
+    return m ? Number(m[1]) / 100 : null;
+}
+
 const limpiar = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 /** Las lecturas que el sistema guarda cuando NO pudo leer nada. */
@@ -120,6 +134,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
         let vivo = true;
         const q = new URLSearchParams({ momento: new Date(event.timestamp).toISOString() });
         if (event.id && !event.sinEvento) q.set("evento", event.id);
+        // La lectura de omni-lpr: su recuadro y las siluetas de OmniVision (27/11).
+        if (event.id && event.sinEvento) q.set("lectura", event.id);
         if (conChapa) q.set("plate", chapa);
         fetch(`/api/history/ficha?${q}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
             .then((j) => { if (vivo) setDatosOmni(j); }).catch(() => { });
@@ -332,6 +348,11 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
                             return m ? Number(m[1]) : null;
                         })(),
                         detalles: event?.details || null,
+                        // La chapa en la foto, como en los eventos LPR (27/11): la de omni-lpr trae su
+                        // recuadro; la del ANPR de la cámara, su PlateRect (0-1000 desde arriba a la izquierda).
+                        bbox: event?.sinEvento ? (datosOmni?.lectura?.bbox ?? null) : bboxDePlateRect(event?.details),
+                        reads: event?.sinEvento ? (datosOmni?.lectura?.reads ?? null) : null,
+                        confidence: confianzaDeDetalles(event?.details) ?? (event?.sinEvento ? (datosOmni?.lectura?.confianza ?? null) : null),
                     }}
                     ficha={datosOmni?.ficha ? { ...datosOmni.ficha, vigilancia: (datosOmni.ficha as any).vigilancia ?? ficha?.vigilancia ?? null } : ficha}
                     datos={datosOmni ? { ...datosOmni, empresa: (datosOmni as any).empresa ?? empresa ?? null } as DatosVisor : empresa ? ({ empresa } as any) : null}

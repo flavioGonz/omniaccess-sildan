@@ -11,8 +11,9 @@ import {
     Scan, Car, Home, ParkingSquare, ShieldAlert, Star, Search as Lupa,
     UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, EyeOff,
     PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2, Share2, ScanSearch,
-    Repeat, Siren, TriangleAlert,
+    Repeat, Siren, TriangleAlert, Wrench, Phone, CalendarClock,
 } from "lucide-react";
+import { rolEtiqueta } from "@/lib/roles-etiquetas";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { REQUERIDA_CORTA, REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
 import { CartelRequerida } from "@/components/CartelRequerida";
@@ -130,6 +131,8 @@ export type FichaMatricula = {
         unidad?: string | null; apartamento?: string | null; cochera?: string | null; rol?: string | null;
     } | null;
     vigilancia?: { etiqueta?: string | null; categoria?: string | null; color?: string | null; motivo?: string | null } | null;
+    /** Un proveedor de un lote que viene en este vehículo (ServicioLote por chapa). */
+    proveedor?: { tipo?: string | null; nombre?: string | null; lote?: string | null; cuando?: string | null; entra?: boolean } | null;
     /** La visita que estaba abierta a esa hora: a qué lote iba y hasta cuándo. */
     visita?: { tipo?: string | null; lote?: string | null; nombre?: string | null; empresa?: string | null; entra?: string; vence?: string; sale?: string | null } | null;
 };
@@ -154,6 +157,8 @@ export type DatosVisor = {
     empresa?: { nombre: string; logo: string; transparente: boolean } | null;
     /** Los pasos de la chapa en los últimos días y cuándo se la ve (panel «Comportamiento»). */
     comportamiento?: ComportamientoVisor | null;
+    /** Una lectura de omni-lpr: dónde está la chapa en su foto y cuántos cuadros la confirmaron. */
+    lectura?: { bbox: string | null; reads: number | null; confianza: number | null } | null;
     /** Cómo se ve el vehículo de la chapa según OmniVision, y si esta lectura no se le parece (lib/perfil-vision). */
     perfilVision?: {
         lecturas: number; fuerte: boolean;
@@ -643,11 +648,14 @@ export function VisorCuadro({
      */
     useMarcasCamara();
     const meta = useMemo(() => leerDetalles(fila.detalles), [fila.detalles]);
+    /** La leyó omni-lpr (RTSP Detect), no el ANPR de la cámara. */
+    const porOmniLpr = /rtsp|omni/i.test(String(meta.Metodo || ""));
     // La marca y el modelo de la cámara sólo con LPR_MARCAS prendida: fallan seguido (lib/marca-vehiculo).
     const marca = ficha?.marca || datoDeCamara(dato(meta.Marca));
     const modelo = ficha?.modelo || datoDeCamara(dato(meta.Modelo));
     const color = ficha?.color || dato(meta.Color);
-    const tipoVeh = ficha?.tipo || dato(meta.Tipo);
+    // SEDAN es el tipo por defecto del padrón (432 de 442 en el lab): si OmniVision sabe la carrocería, no se contradice con un dato que nadie cargó.
+    const tipoVeh = (ficha?.tipo && !(ficha.tipo === "SEDAN" && pv?.carroceria) ? ficha.tipo : null) || dato(meta.Tipo);
     const deLaCamara = !ficha?.marca && !!datoDeCamara(dato(meta.Marca));
 
     const logo = getCarLogo(marca);
@@ -1253,20 +1261,26 @@ export function VisorCuadro({
 
                     {/* ── El padrón: quién es y a dónde va ── */}
                     <Seccion titulo="Padrón" icono={Home}
-                        extra={<span className={cn("text-[11px] font-semibold", cargandoFicha ? "text-white/45" : conocida ? "visor-bien" : "text-white/55")}>
-                            {cargandoFicha ? "Consultando…" : conocida ? "Registrada" : "No figura"}
+                        extra={<span className={cn("text-[11px] font-semibold", cargandoFicha ? "text-white/45" : conocida ? "visor-bien" : ficha?.proveedor ? "text-sky-300" : ficha?.visita ? "visor-aviso" : "text-white/55")}>
+                            {cargandoFicha ? "Consultando…" : conocida ? "Registrada" : ficha?.proveedor ? "Proveedor de un lote" : ficha?.visita ? "Visita" : "No figura"}
                         </span>}>
                         {cargandoFicha && !dueno ? (
                             <div className="h-4 w-48 rounded bg-white/10 animate-pulse my-1" />
                         ) : dueno ? (
-                            <dl>
-                                <Dato rotulo="Residente" valor={dueno.nombre} />
-                                <Dato rotulo="Lote" valor={[dueno.unidad, dueno.apartamento].filter(Boolean).join(" · ") || null} />
-                                <Dato rotulo="Teléfono" valor={dueno.telefono} />
-                                {plazasOn && <Dato rotulo="Cochera" valor={dueno.cochera} falta="sin asignar" />}
-                            </dl>
+                            /* Quién es, en grande (27/11, Nico: «resaltar más los datos del padrón y de la
+                               persona: residente, proveedor… están muy chicos»). Es lo que el guardia
+                               vino a saber; antes eran renglones de 12 px con el rótulo al costado. */
+                            <TarjetaQuien icono={null} iniciales={iniciales(dueno.nombre)} titulo={dueno.nombre || "Sin nombre"}
+                                rol={rolEtiqueta(dueno.rol) || "Residente"} tono="bien"
+                                lote={[dueno.unidad, dueno.apartamento].filter(Boolean).join(" · ") || null}
+                                renglones={[dueno.telefono ? { I: Phone, t: dueno.telefono } : null, plazasOn ? { I: ParkingSquare, t: dueno.cochera ? `Cochera ${dueno.cochera}` : "Cochera sin asignar" } : null]} />
+                        ) : ficha?.proveedor ? (
+                            <TarjetaQuien icono={Wrench} titulo={ficha.proveedor.nombre || ficha.proveedor.tipo || "Proveedor"}
+                                rol={`Proveedor${ficha.proveedor.tipo ? ` · ${ficha.proveedor.tipo}` : ""}`} tono="info"
+                                lote={ficha.proveedor.lote || null}
+                                renglones={[ficha.proveedor.cuando ? { I: CalendarClock, t: ficha.proveedor.cuando } : null, { I: ShieldAlert, t: ficha.proveedor.entra ? "Entra solo en su horario" : "Identificado, sin entrada propia" }]} />
                         ) : null}
-                        {cargandoFicha && !dueno ? null : dueno ? (
+                        {cargandoFicha && !dueno ? null : dueno || ficha?.proveedor ? (
                             listaNegraBoton && <div className="flex justify-end pt-1">{listaNegraBoton}</div>
                         ) : (
                             <div className="flex items-center justify-between gap-3 py-0.5">
@@ -1292,11 +1306,12 @@ export function VisorCuadro({
                             </div>
                         )}
                         {ficha?.visita && (
-                            <dl>
-                                <Dato rotulo="Visita"
-                                    valor={[ficha.visita.tipo, ficha.visita.lote ? `a ${ficha.visita.lote}` : null, ficha.visita.nombre].filter(Boolean).join(" · ") || "Visita"}
-                                    sufijo={ficha.visita.sale ? `salió ${hora(new Date(ficha.visita.sale))}` : ficha.visita.vence ? `hasta ${hora(new Date(ficha.visita.vence))}` : null} />
-                            </dl>
+                            <div className={cn(dueno || ficha?.proveedor ? "mt-2.5" : "")}>
+                                <TarjetaQuien icono={UserPlus} titulo={ficha.visita.nombre || ficha.visita.empresa || ficha.visita.tipo || "Visita"}
+                                    rol={`Visita${ficha.visita.tipo ? ` · ${ficha.visita.tipo}` : ""}`} tono="aviso"
+                                    lote={ficha.visita.lote ? `a ${ficha.visita.lote}` : null}
+                                    renglones={[{ I: CalendarClock, t: ficha.visita.sale ? `Salió ${hora(new Date(ficha.visita.sale))}` : ficha.visita.vence ? `Hasta las ${hora(new Date(ficha.visita.vence))}` : "Visita abierta" }]} />
+                            </div>
                         )}
                         {datos?.porRelectura && datos.plate && (
                             <p className="text-[11.5px] text-white/55 mt-1 leading-snug">
@@ -1326,8 +1341,11 @@ export function VisorCuadro({
                     {/* «Según la cámara» habla de la LECTURA de la chapa: en un portero sin chapa leída
                         no hay nada que contar ahí (18/11). Con chapa, se muestra igual. */}
                     {(!abreConRostro || (chapaVisor.plate && !esSinLectura(chapaVisor.plate))) && (conf != null || fila.reads != null || recuadro || vehiculoCamara) && (
-                        <Seccion titulo="Según la cámara" icono={Camera}>
+                        <Seccion titulo={porOmniLpr ? "Según OmniVision" : "Según la cámara"} icono={porOmniLpr ? Sparkles : Camera}>
                             <dl>
+                                {/* Quién leyó y dónde (27/11, Nico: «ANPR de la cámara o el nuestro, siempre mostrar los datos de captura»). */}
+                                <Dato rotulo="Lector" valor={porOmniLpr ? "OmniVision · lector de OmniAccess" : meta.Metodo ? "ANPR de la cámara" : null} falta="sin dato" />
+                                {fila.cameraName && <Dato rotulo="Cámara" valor={fila.cameraName} />}
                                 {(conf != null || fila.reads != null) && (
                                     <Dato rotulo="Lectura" tono={cn("font-bold tabular-nums", tonoConf)}
                                         valor={conf != null ? `${conf} %` : null} falta="sin dato"
@@ -1633,5 +1651,43 @@ function IconoLimpio({ children, onClick, titulo, activo }: { children: React.Re
                 activo ? "bg-white text-black" : "text-white/80 hover:text-white hover:bg-white/15")}>
             {children}
         </button>
+    );
+}
+
+const iniciales = (n?: string | null) => String(n || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase() || "").join("") || "?";
+
+/**
+ * Quién es, en grande: el residente, el proveedor o la visita (27/11). El nombre a 20 px, su papel
+ * en una pastilla del tono que corresponde y el lote con su ícono; abajo, lo que sirve para actuar
+ * (teléfono, cuándo viene, hasta cuándo). Tonos de estado, no de acción: bien = del padrón,
+ * info = proveedor, aviso = visita.
+ */
+function TarjetaQuien({ icono: I, iniciales: ini, titulo, rol, lote, renglones, tono }: {
+    icono: React.ComponentType<{ size?: number; className?: string }> | null; iniciales?: string;
+    titulo: string; rol: string; lote: string | null; tono: "bien" | "info" | "aviso";
+    renglones: ({ I: React.ComponentType<{ size?: number; className?: string }>; t: string } | null)[];
+}) {
+    return (
+        <div className="rounded-[10px] bg-white/[0.06] p-3.5">
+            <div className="flex items-start gap-3">
+                <span className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-full text-[16px] font-bold", tono === "bien" ? "pleno-bien" : tono === "info" ? "pleno-info" : "pleno-aviso")}>
+                    {I ? <I size={20} /> : ini}
+                </span>
+                <div className="min-w-0 flex-1">
+                    <p className="truncate text-[20px] font-bold leading-tight tracking-[-0.01em] text-white" title={titulo}>{titulo}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                        <span className={cn("rounded-full px-2 py-0.5 text-[11.5px] font-bold", tono === "bien" ? "chip-bien" : tono === "info" ? "chip-info" : "chip-aviso")}>{rol}</span>
+                        {lote && <span className="inline-flex items-center gap-1 text-[14px] font-semibold text-white/90"><Home size={14} className="text-white/60" />{lote}</span>}
+                    </div>
+                </div>
+            </div>
+            {renglones.some(Boolean) && (
+                <div className="mt-3 space-y-1.5 border-t border-white/10 pt-2.5">
+                    {renglones.filter((r): r is NonNullable<typeof r> => !!r).map(({ I: Ico, t }, i) => (
+                        <p key={i} className="flex items-center gap-2 text-[13.5px] tabular-nums text-white/85"><Ico size={14} className="shrink-0 text-white/50" />{t}</p>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
