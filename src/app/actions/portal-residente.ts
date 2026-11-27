@@ -19,10 +19,10 @@ import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
  * de matrícula queda pendiente hasta que la administración lo aprueba en la bandeja del censo.
  */
 
-export type PersonaDelLote = { id: string; nombre: string; vinculo: string; yo: boolean };
-export type ChapaDelLote = { chapa: string; de: string; mia: boolean };
+export type PersonaDelLote = { id: string; nombre: string; vinculo: string; yo: boolean; telefono: string | null };
+export type ChapaDelLote = { chapa: string; de: string; mia: boolean; marca: string | null; color: string | null };
 /** Un servicio del lote, como lo ve el residente: sin documento ni teléfono del proveedor (eso es de la administración). */
-export type ServicioVisto = { id: string; tipo: string; rotulo: string; nombre: string; cuando: string; chapa: string | null; entra: boolean };
+export type ServicioVisto = { id: string; tipo: string; rotulo: string; nombre: string; cuando: string; chapa: string | null; entra: boolean; telefono: string | null; dias: string[]; desde: string | null; hasta: string | null; notas: string | null };
 export type PedidoVisto = { id: string; tipo: string; chapa: string | null; estado: string; motivo: string | null; createdAt: string; detalle: Record<string, string> };
 export type MiPortal = {
     nombre: string; email: string | null; telefono: string | null;
@@ -36,6 +36,8 @@ export type MiPortal = {
     censo: { enlace: string | null; estado: "sin-cargar" | "esperando" | "aprobado"; cuando: string | null };
     /** Barrio abierto: lo que suma o saca el residente (matrículas y proveedores) queda al guardar, sin aprobación. */
     altaDirecta: boolean;
+    /** Es dueño (propietario) del lote: puede editar y quitar los registros de todo el lote, no sólo los suyos. */
+    soyDueno: boolean;
 };
 
 /**
@@ -69,20 +71,21 @@ export async function miPortal(token: string): Promise<{ ok: boolean; datos?: Mi
     const [gente, pedidos, inv, copia, cargas, servicios, directos] = await Promise.all([
         lote ? prisma.userUnidad.findMany({
             where: { unitId: lote.id }, orderBy: { createdAt: "asc" },
-            select: { vinculo: true, user: { select: { id: true, name: true, vehicles: { select: { plate: true } }, credentials: { where: { type: "PLATE" }, select: { value: true } } } } },
+            select: { vinculo: true, user: { select: { id: true, name: true, phone: true, vehicles: { select: { plate: true, brand: true, color: true } }, credentials: { where: { type: "PLATE" }, select: { value: true } } } } },
         }) : Promise.resolve([]),
         prisma.pedidoResidente.findMany({ where: { userId: u.id }, orderBy: { createdAt: "desc" }, take: 30 }),
         lote ? prisma.invitacionCenso.findFirst({ where: { sitio: "", unitId: lote.id }, select: { id: true, clave: true, userId: true } }) : Promise.resolve(null),
         lote ? prisma.copiaCenso.findFirst({ where: { userId: u.id, invitacion: { unitId: lote.id } }, select: { id: true } }) : Promise.resolve(null),
         lote ? prisma.solicitudPadron.findMany({ where: { unitId: lote.id, estado: { in: ["pendiente", "aprobada"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { estado: true, createdAt: true } }) : Promise.resolve([]),
-        lote ? prisma.servicioLote.findMany({ where: { unitId: lote.id, estado: "ACTIVO" }, orderBy: [{ tipo: "asc" }, { createdAt: "asc" }], select: { id: true, tipo: true, nombre: true, dias: true, desde: true, hasta: true, chapa: true, autorizado: true } }) : Promise.resolve([]),
+        lote ? prisma.servicioLote.findMany({ where: { unitId: lote.id, estado: "ACTIVO" }, orderBy: [{ tipo: "asc" }, { createdAt: "asc" }], select: { id: true, tipo: true, nombre: true, telefono: true, dias: true, desde: true, hasta: true, chapa: true, notas: true, autorizado: true } }) : Promise.resolve([]),
         sinModeracion(),
     ]);
     const enlace = inv ? (inv.userId === u.id || !copia ? `/registro/${inv.clave}` : `/registro/${inv.clave}?de=${copia.id}`) : null;
     const chapas: ChapaDelLote[] = [];
     for (const g of gente) {
         for (const c of new Set([...g.user.vehicles.map((v) => v.plate), ...g.user.credentials.map((x) => x.value)].map(limpiarChapa).filter(Boolean))) {
-            if (!chapas.some((x) => x.chapa === c)) chapas.push({ chapa: c, de: g.user.name, mia: g.user.id === u.id });
+            const v = g.user.vehicles.find((x) => limpiarChapa(x.plate) === c);
+            if (!chapas.some((x) => x.chapa === c)) chapas.push({ chapa: c, de: g.user.name, mia: g.user.id === u.id, marca: v?.brand || null, color: v?.color || null });
         }
     }
     return {
@@ -91,12 +94,13 @@ export async function miPortal(token: string): Promise<{ ok: boolean; datos?: Mi
             nombre: u.name, email: u.email, telefono: u.phone,
             lote: lote ? { id: lote.id, nombre: lote.name, administracion: lote.administracion?.nombre || null, titular: lote.titular } : null,
             otrosLotes: u.vinculos.filter((v) => v.unitId !== lote?.id).map((v) => v.unit.name),
-            gente: gente.map((g) => ({ id: g.user.id, nombre: g.user.name, vinculo: g.vinculo, yo: g.user.id === u.id })),
+            gente: gente.map((g) => ({ id: g.user.id, nombre: g.user.name, vinculo: g.vinculo, yo: g.user.id === u.id, telefono: g.user.phone || null })),
             chapas: chapas.sort((a, b) => Number(b.mia) - Number(a.mia) || a.chapa.localeCompare(b.chapa)),
             pedidos: pedidos.map((p) => ({ id: p.id, tipo: p.tipo, chapa: p.chapa, estado: p.estado, motivo: p.motivo, createdAt: p.createdAt.toISOString(), detalle: (p.detalle || {}) as Record<string, string> })),
-            servicios: servicios.map((sv) => ({ id: sv.id, tipo: sv.tipo, rotulo: rotuloServicio(sv.tipo), nombre: sv.nombre, cuando: cuandoViene(sv), chapa: sv.chapa, entra: sv.autorizado })),
+            servicios: servicios.map((sv) => ({ id: sv.id, tipo: sv.tipo, rotulo: rotuloServicio(sv.tipo), nombre: sv.nombre, cuando: cuandoViene(sv), chapa: sv.chapa, entra: sv.autorizado, telefono: sv.telefono, dias: Array.isArray(sv.dias) ? (sv.dias as string[]) : [], desde: sv.desde, hasta: sv.hasta, notas: sv.notas })),
             censo: { enlace, estado: cargas[0] ? (cargas[0].estado === "aprobada" ? "aprobado" : "esperando") : "sin-cargar", cuando: cargas[0]?.createdAt.toISOString() || null },
             altaDirecta: directos,
+            soyDueno: principal?.vinculo === "PROPIETARIO",
         },
     };
 }
@@ -225,5 +229,127 @@ export async function pedirBajaServicio(token: string, servicioId: string): Prom
     if (ya) return { ok: false, error: "Ya hay un pedido de baja de ese proveedor esperando a la administración." };
     await prisma.pedidoResidente.create({ data: { userId: u.id, unitId: sv.unitId, tipo: "SERVICIO_BAJA", chapa: sv.chapa, detalle: { servicioId: sv.id, tipo: sv.tipo, nombre: sv.nombre } } });
     await anotarEnLote([sv.unitId], { que: "CENSO_CARGA", persona: u.name, userId: u.id, chapa: sv.chapa || undefined, detalle: `Pidió dar de baja a ${rotuloServicio(sv.tipo)}${sv.nombre ? ` ${sv.nombre}` : ""} desde su portal.` }, { quien: u.name, origen: "censo" });
+    return { ok: true };
+}
+
+/* ═══════════════════════ Editar y quitar registros del lote (27/11) ═══════════════════════
+ *
+ * Nico: «permitir editar y eliminar registros en cada lote, por parte de los dueños de casa, en el
+ * portal». Cada uno edita lo suyo (sus datos, sus matrículas); el propietario del lote, además, lo de
+ * todo el lote: las personas, sus matrículas y los proveedores. Como el resto del portal sin
+ * moderación, sólo en barrio abierto (ver sinModeracion): en uno cerrado una matrícula abre la barrera.
+ * Todo queda en el historial del lote, con quién lo hizo.
+ */
+type Resultado = { ok: boolean; error?: string };
+const corto = (t: unknown, n = 80) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+
+/** El lote principal de quien entra, si es dueño, y los ids de las personas de ese lote. */
+async function contexto(token: string) {
+    const u = await quien(token);
+    if (!u) return null;
+    const principal = u.vinculos.find((v) => v.unitId === u.unitId) || u.vinculos[0] || null;
+    const unitId = principal?.unitId || null;
+    const personas = unitId ? (await prisma.userUnidad.findMany({ where: { unitId }, select: { userId: true } })).map((x) => x.userId) : [];
+    return { u, unitId, dueno: principal?.vinculo === "PROPIETARIO", personas };
+}
+const SIN_ENLACE = "Tu enlace ya no sirve: pedile uno nuevo a la administración.";
+const SOLO_ABIERTO = "En este barrio los cambios los hace la administración.";
+
+/** Cambiar el nombre o el teléfono: los suyos siempre; los de otra persona del lote, si es dueño. */
+export async function editarPersona(token: string, userId: string, d: { nombre?: string; telefono?: string }): Promise<Resultado> {
+    const c = await contexto(token);
+    if (!c) return { ok: false, error: SIN_ENLACE };
+    const propia = userId === c.u.id;
+    if (!propia && !(c.dueno && c.personas.includes(userId))) return { ok: false, error: "Sólo el propietario del lote puede cambiar los datos de otra persona." };
+    if (!propia && !(await sinModeracion())) return { ok: false, error: SOLO_ABIERTO };
+    const nombre = corto(d.nombre, 80), telefono = corto(d.telefono, 30);
+    if (nombre.length < 2) return { ok: false, error: "Poné el nombre." };
+    if (telefono && telefono.replace(/\D/g, "").length < 8) return { ok: false, error: "Ese teléfono no tiene forma de teléfono." };
+    const antes = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, phone: true } });
+    if (!antes) return { ok: false, error: "Esa persona ya no está." };
+    await prisma.user.update({ where: { id: userId }, data: { name: nombre, phone: telefono || null } });
+    const cambio = [antes.name !== nombre ? `nombre: ${nombre}` : null, (antes.phone || "") !== telefono ? "teléfono" : null].filter(Boolean).join(" · ");
+    if (c.unitId && cambio) await anotarEnLote([c.unitId], { que: "PERSONA_EDITADA", persona: nombre, userId, detalle: `${propia ? "Corrigió sus datos" : `${c.u.name} corrigió sus datos`} desde el portal (${cambio}).` }, { quien: c.u.name, origen: "censo" });
+    return { ok: true };
+}
+
+/** Sacar a una persona del lote (no se la borra del padrón: deja de figurar en este lote). Sólo el dueño, y no a sí mismo. */
+export async function quitarPersona(token: string, userId: string): Promise<Resultado> {
+    const c = await contexto(token);
+    if (!c || !c.unitId) return { ok: false, error: SIN_ENLACE };
+    if (!c.dueno) return { ok: false, error: "Sólo el propietario del lote puede sacar a alguien." };
+    if (userId === c.u.id) return { ok: false, error: "No te podés sacar a vos: avisale a la administración." };
+    if (!(await sinModeracion())) return { ok: false, error: SOLO_ABIERTO };
+    const v = await prisma.userUnidad.findFirst({ where: { unitId: c.unitId, userId }, select: { id: true, user: { select: { name: true, unitId: true } } } });
+    if (!v) return { ok: false, error: "Esa persona ya no está en el lote." };
+    await prisma.userUnidad.delete({ where: { id: v.id } });
+    if (v.user.unitId === c.unitId) {
+        const otro = await prisma.userUnidad.findFirst({ where: { userId }, orderBy: { createdAt: "asc" }, select: { unitId: true } });
+        await prisma.user.update({ where: { id: userId }, data: { unitId: otro?.unitId || null } });
+    }
+    await anotarEnLote([c.unitId], { que: "PERSONA_EDITADA", persona: v.user.name, userId, detalle: `${c.u.name} la sacó del lote desde el portal.` }, { quien: c.u.name, origen: "censo" });
+    return { ok: true };
+}
+
+/** De quién es una matrícula del lote, y si quien entra la puede tocar (la suya, o cualquiera del lote si es dueño). */
+async function chapaTocable(c: NonNullable<Awaited<ReturnType<typeof contexto>>>, chapa: string) {
+    const p = limpiarChapa(chapa);
+    const cred = await prisma.credential.findFirst({ where: { type: "PLATE", value: p, userId: { in: c.personas.length ? c.personas : [c.u.id] } }, select: { userId: true } });
+    const veh = cred ? null : await prisma.vehicle.findFirst({ where: { plate: p, userId: { in: c.personas.length ? c.personas : [c.u.id] } }, select: { userId: true } });
+    const de = cred?.userId || veh?.userId || null;
+    if (!de) return { p, de: null, puede: false, error: `${p} no es de nadie de tu lote.` };
+    if (de !== c.u.id && !c.dueno) return { p, de, puede: false, error: "Sólo el propietario del lote puede cambiar las matrículas de otra persona." };
+    return { p, de, puede: true, error: null };
+}
+
+/** La marca y el color de un vehículo del lote. */
+export async function editarVehiculo(token: string, chapa: string, d: { marca?: string; color?: string }): Promise<Resultado> {
+    const c = await contexto(token);
+    if (!c) return { ok: false, error: SIN_ENLACE };
+    if (!(await sinModeracion())) return { ok: false, error: SOLO_ABIERTO };
+    const t = await chapaTocable(c, chapa);
+    if (!t.puede || !t.de) return { ok: false, error: t.error || "No se pudo." };
+    const data = { brand: corto(d.marca, 40) || null, color: corto(d.color, 30) || null };
+    const veh = await prisma.vehicle.findUnique({ where: { plate: t.p }, select: { id: true } });
+    if (veh) await prisma.vehicle.update({ where: { id: veh.id }, data });
+    else await prisma.vehicle.create({ data: { plate: t.p, userId: t.de, ...data, notes: "Cargada desde el portal" } });
+    if (c.unitId) await anotarEnLote([c.unitId], { que: "DATO_CAMBIADO", persona: c.u.name, userId: c.u.id, chapa: t.p, detalle: `Corrigió el vehículo ${t.p} desde el portal (${[data.brand, data.color].filter(Boolean).join(" · ") || "sin marca ni color"}).` }, { quien: c.u.name, origen: "censo" });
+    return { ok: true };
+}
+
+/** Quitar una matrícula del lote: la suya, o la de cualquiera del lote si es dueño. */
+export async function quitarMatricula(token: string, chapa: string): Promise<Resultado> {
+    const c = await contexto(token);
+    if (!c) return { ok: false, error: SIN_ENLACE };
+    if (!(await sinModeracion())) return { ok: false, error: SOLO_ABIERTO };
+    const t = await chapaTocable(c, chapa);
+    if (!t.puede || !t.de) return { ok: false, error: t.error || "No se pudo." };
+    await prisma.credential.deleteMany({ where: { type: "PLATE", value: t.p, userId: t.de } });
+    await prisma.vehicle.deleteMany({ where: { plate: t.p, userId: t.de } });
+    if (c.unitId) await anotarEnLote([c.unitId], { que: "CENSO_CARGA", persona: c.u.name, userId: c.u.id, chapa: t.p, detalle: `Sacó ${t.p} desde su portal${t.de !== c.u.id ? " (era de otra persona del lote)" : ""}.` }, { quien: c.u.name, origen: "censo" });
+    return { ok: true };
+}
+
+/** Corregir un proveedor del lote: quién es, cuándo viene, la matrícula y si entra solo. */
+export async function editarServicio(token: string, servicioId: string, d: { tipo: string; nombre: string; telefono?: string; chapa?: string; dias?: string[]; desde?: string; hasta?: string; notas?: string; entrada?: boolean }): Promise<Resultado> {
+    const c = await contexto(token);
+    if (!c) return { ok: false, error: SIN_ENLACE };
+    if (!(await sinModeracion())) return { ok: false, error: SOLO_ABIERTO };
+    const lotes = c.u.vinculos.map((v) => v.unitId);
+    const sv = await prisma.servicioLote.findFirst({ where: { id: servicioId, unitId: { in: lotes }, estado: "ACTIVO" }, select: { id: true, unitId: true } });
+    if (!sv) return { ok: false, error: "Ese proveedor ya no figura en tu lote." };
+    if (!TIPOS_SERVICIO.some((t) => t.id === d.tipo)) return { ok: false, error: "Elegí qué servicio es." };
+    const nombre = corto(d.nombre);
+    const crudo = String(d.chapa || "").trim();
+    const chapa = crudo ? (normalizarChapa(crudo)?.plate || limpiarChapa(crudo)) : null;
+    if (!nombre && !chapa) return { ok: false, error: "Poné quién es, o al menos la matrícula con la que viene." };
+    if (chapa && (chapa.length < 5 || chapa.length > 8)) return { ok: false, error: "Esa matrícula no tiene forma de matrícula." };
+    const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if ((d.desde && !HORA.test(d.desde)) || (d.hasta && !HORA.test(d.hasta))) return { ok: false, error: "La hora va como 08:00." };
+    const dias = ordenarDias(d.dias);
+    const autorizado = !!d.entrada && !!chapa && dias.length > 0;
+    const data = { tipo: d.tipo, nombre, telefono: corto(d.telefono, 30) || null, chapa, dias, desde: d.desde || null, hasta: d.hasta || null, notas: corto(d.notas, 200) || null, autorizado, autorizadoPor: autorizado ? c.u.name : null, autorizadoAt: autorizado ? new Date() : null };
+    await prisma.servicioLote.update({ where: { id: sv.id }, data });
+    await anotarEnLote([sv.unitId], { que: "SERVICIO_EDITADO", persona: `${rotuloServicio(d.tipo)}${nombre ? ` ${nombre}` : ""}`, userId: c.u.id, chapa: chapa || undefined, detalle: [`Lo corrigió ${c.u.name} desde su portal`, cuandoViene(data), autorizado ? "entrada habilitada en su horario" : null].filter(Boolean).join(" · ") }, { quien: c.u.name, origen: "censo" });
     return { ok: true };
 }

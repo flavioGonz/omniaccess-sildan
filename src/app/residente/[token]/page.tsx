@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
     ArrowUpRight, CalendarPlus, Car, Check, ChevronRight, ClipboardList, Clock, Copy, Download, Home, Info, LogIn, PartyPopper,
-    DoorOpen, Plus, QrCode, ShieldCheck, Ticket, Trash2, UserPlus, Users, Wrench, X,
+    DoorOpen, Pencil, Plus, QrCode, ShieldCheck, Ticket, Trash2, UserPlus, Users, Wrench, X,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { OmniLogo } from "@/components/brand/OmniLogo";
@@ -14,7 +14,10 @@ import {
     addMyGuest, createMyInvitation, extendMyInvitation, getQrSvg, listMyInvitations, revokeMyInvitation,
     type MyGuest, type MyInvitation, type PortalHost,
 } from "@/app/actions/invitations";
-import { anularPedido, miPortal, pedirBajaMatricula, pedirBajaServicio, pedirMatricula, pedirServicio, type MiPortal } from "@/app/actions/portal-residente";
+import {
+    anularPedido, editarPersona, editarServicio, editarVehiculo, miPortal, pedirBajaMatricula, pedirBajaServicio, pedirMatricula, pedirServicio, quitarMatricula, quitarPersona,
+    type ChapaDelLote, type MiPortal, type PersonaDelLote, type ServicioVisto,
+} from "@/app/actions/portal-residente";
 import { DIAS, TIPOS_SERVICIO, TIPOS_VEHICULO } from "@/lib/registro-padron";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +65,7 @@ export default function PortalResidente() {
     const [estado, setEstado] = useState<"cargando" | "listo" | "malo">("cargando");
     const [pest, setPest] = useState<Pest>("inicio");
     const [sentido, setSentido] = useState(1);
-    const [hoja, setHoja] = useState<null | { que: "invitar"; kind: "SINGLE" | "EVENT" } | { que: "invitado"; inv: MyInvitation } | { que: "qr"; g: MyGuest } | { que: "matricula" } | { que: "servicio" }>(null);
+    const [hoja, setHoja] = useState<null | { que: "invitar"; kind: "SINGLE" | "EVENT" } | { que: "invitado"; inv: MyInvitation } | { que: "qr"; g: MyGuest } | { que: "matricula" } | { que: "servicio"; sv?: ServicioVisto } | { que: "vehiculo"; c: ChapaDelLote } | { que: "persona"; p: PersonaDelLote }>(null);
     const quieto = useReducedMotion();
 
     useEffect(() => { getAppBranding().then((b) => setMarca({ barrio: b.barrio || b.name || "", logoUrl: b.logoUrl || "" })).catch(() => { }); }, []);
@@ -94,8 +97,8 @@ export default function PortalResidente() {
                     <motion.div key={pest} custom={sentido} initial={quieto ? { opacity: 0 } : { opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={quieto ? { opacity: 0 } : { opacity: 0, x: -22 * sentido }} transition={RESORTE}>
                         {pest === "inicio" && <Inicio host={host} datos={datos} items={items} alIr={ir} alInvitar={(kind) => setHoja({ que: "invitar", kind })} alQr={(g) => setHoja({ que: "qr", g })} />}
                         {pest === "invitar" && <Invitaciones token={token} items={items} alNueva={(kind) => setHoja({ que: "invitar", kind })} alQr={(g) => setHoja({ que: "qr", g })} alAgregar={(inv) => setHoja({ que: "invitado", inv })} alCambiar={traer} />}
-                        {pest === "vehiculos" && <Vehiculos token={token} datos={datos} alPedir={() => setHoja({ que: "matricula" })} alCambiar={traer} />}
-                        {pest === "lote" && <MiLote token={token} datos={datos} alPedir={() => setHoja({ que: "servicio" })} alCambiar={traer} />}
+                        {pest === "vehiculos" && <Vehiculos token={token} datos={datos} alPedir={() => setHoja({ que: "matricula" })} alEditar={(c) => setHoja({ que: "vehiculo", c })} alCambiar={traer} />}
+                        {pest === "lote" && <MiLote token={token} datos={datos} alPedir={() => setHoja({ que: "servicio" })} alEditarServicio={(sv) => setHoja({ que: "servicio", sv })} alEditarPersona={(p) => setHoja({ que: "persona", p })} alCambiar={traer} />}
                     </motion.div>
                 </AnimatePresence>
             </main>
@@ -124,7 +127,9 @@ export default function PortalResidente() {
                 {hoja?.que === "invitado" && <HojaInvitado key="g" inv={hoja.inv} token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
                 {hoja?.que === "qr" && <HojaQr key="q" g={hoja.g} alCerrar={() => setHoja(null)} />}
                 {hoja?.que === "matricula" && <HojaMatricula key="m" token={token} directo={!!datos?.altaDirecta} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
-                {hoja?.que === "servicio" && <HojaServicio key="s" token={token} directo={!!datos?.altaDirecta} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
+                {hoja?.que === "servicio" && <HojaServicio key="s" token={token} directo={!!datos?.altaDirecta} previo={hoja.sv} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
+                {hoja?.que === "vehiculo" && <HojaVehiculo key="v" token={token} c={hoja.c} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
+                {hoja?.que === "persona" && <HojaPersona key="p" token={token} p={hoja.p} puedeQuitar={!!datos?.altaDirecta && !!datos?.soyDueno && !hoja.p.yo} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
             </AnimatePresence>
         </Marco>
     );
@@ -305,7 +310,7 @@ function Tarjeta({ inv, token, pasada, alQr, alAgregar, alCambiar }: { inv: MyIn
 
 /* ═══════════════════════ Vehículos ═══════════════════════ */
 
-function Vehiculos({ token, datos, alPedir, alCambiar }: { token: string; datos: MiPortal; alPedir: () => void; alCambiar: () => void }) {
+function Vehiculos({ token, datos, alPedir, alEditar, alCambiar }: { token: string; datos: MiPortal; alPedir: () => void; alEditar: (c: ChapaDelLote) => void; alCambiar: () => void }) {
     const [sacando, setSacando] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const mias = datos.chapas.filter((c) => c.mia), delLote = datos.chapas.filter((c) => !c.mia);
@@ -341,8 +346,8 @@ function Vehiculos({ token, datos, alPedir, alCambiar }: { token: string; datos:
                         {mias.map((c) => (
                             <li key={c.chapa} className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5">
                                 <Chapa p={c.chapa} />
-                                <span className="min-w-0 flex-1 text-[12.5px]">{bajaPedida(c.chapa) ? <span className="text-muted-foreground">Pediste sacarla</span> : <span className="inline-flex items-center gap-1 font-semibold tono-bien"><ShieldCheck size={13} /> Aprobada</span>}</span>
-                                {!bajaPedida(c.chapa) && (sacando === c.chapa ? (
+                                <span className="min-w-0 flex-1 text-[12.5px]">{datos.altaDirecta ? <Vehiculo c={c} /> : bajaPedida(c.chapa) ? <span className="text-muted-foreground">Pediste sacarla</span> : <span className="inline-flex items-center gap-1 font-semibold tono-bien"><ShieldCheck size={13} /> Aprobada</span>}</span>
+                                {datos.altaDirecta ? <BotonEditar alTocar={() => alEditar(c)} /> : !bajaPedida(c.chapa) && (sacando === c.chapa ? (
                                     <span className="flex gap-1.5">
                                         <button type="button" onClick={async () => { setError(null); const r = await pedirBajaMatricula(token, c.chapa); setSacando(null); if (!r.ok) setError(r.error || "No se pudo."); alCambiar(); }} className="h-9 px-3 rounded-[8px] pleno-mal text-[12.5px] font-bold">Pedir sacarla</button>
                                         <button type="button" onClick={() => setSacando(null)} className="h-9 px-2.5 rounded-[8px] border border-border text-[12.5px]">No</button>
@@ -357,7 +362,14 @@ function Vehiculos({ token, datos, alPedir, alCambiar }: { token: string; datos:
             {delLote.length > 0 && (
                 <section className="mt-6">
                     <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">De tu familia en el lote</h2>
-                    <ul className="space-y-2">{delLote.map((c) => <li key={c.chapa} className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5"><Chapa p={c.chapa} /><span className="text-[12.5px] text-muted-foreground">de {c.de}</span></li>)}</ul>
+                    <ul className="space-y-2">{delLote.map((c) => (
+                        <li key={c.chapa} className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5">
+                            <Chapa p={c.chapa} />
+                            <span className="min-w-0 flex-1 text-[12.5px] text-muted-foreground"><span className="block truncate">de {c.de}</span>{(c.marca || c.color) && <span className="block truncate">{[c.marca, c.color].filter(Boolean).join(" · ")}</span>}</span>
+                            {datos.altaDirecta && datos.soyDueno && <BotonEditar alTocar={() => alEditar(c)} />}
+                        </li>
+                    ))}</ul>
+                    {datos.altaDirecta && datos.soyDueno && <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> Como propietario del lote podés corregir o sacar las matrículas de todos.</p>}
                 </section>
             )}
 
@@ -379,6 +391,17 @@ function Vehiculos({ token, datos, alPedir, alCambiar }: { token: string; datos:
     );
 }
 
+/** Marca y color del vehículo, o la invitación a completarlos. */
+function Vehiculo({ c }: { c: ChapaDelLote }) {
+    const que = [c.marca, c.color].filter(Boolean).join(" · ");
+    return que ? <span className="block truncate font-semibold">{que}</span> : <span className="block text-muted-foreground">Sin marca ni color</span>;
+}
+
+/** El lápiz de cada renglón: abre la hoja donde se corrige y, abajo de todo, se elimina. */
+function BotonEditar({ alTocar, rotulo = "Editar" }: { alTocar: () => void; rotulo?: string }) {
+    return <button type="button" onClick={alTocar} className={cn("inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[8px] border border-border px-3 text-[12.5px] font-semibold", PULSABLE)}><Pencil size={13} /> {rotulo}</button>;
+}
+
 function Chapa({ p, apagada }: { p: string; apagada?: boolean }) {
     return (
         <span className={cn("inline-flex flex-col overflow-hidden rounded-[7px] border-2 bg-white text-black", apagada ? "border-black/30 opacity-60" : "border-black/80")}>
@@ -390,7 +413,7 @@ function Chapa({ p, apagada }: { p: string; apagada?: boolean }) {
 
 /* ═══════════════════════ Mi lote ═══════════════════════ */
 
-function MiLote({ token, datos, alPedir, alCambiar }: { token: string; datos: MiPortal; alPedir: () => void; alCambiar: () => void }) {
+function MiLote({ token, datos, alPedir, alEditarServicio, alEditarPersona, alCambiar }: { token: string; datos: MiPortal; alPedir: () => void; alEditarServicio: (sv: ServicioVisto) => void; alEditarPersona: (p: PersonaDelLote) => void; alCambiar: () => void }) {
     const [bajando, setBajando] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const pedidosSv = datos.pedidos.filter((p) => p.tipo.startsWith("SERVICIO") && p.estado === "PENDIENTE");
@@ -420,11 +443,12 @@ function MiLote({ token, datos, alPedir, alCambiar }: { token: string; datos: Mi
                     {datos.gente.map((g) => (
                         <li key={g.id} className="flex items-center gap-3 px-4 py-3">
                             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted text-[13px] font-bold">{g.nombre.charAt(0).toUpperCase()}</span>
-                            <span className="min-w-0 flex-1"><span className="block truncate text-[14.5px] font-semibold">{g.nombre}{g.yo ? <span className="font-normal text-muted-foreground"> (vos)</span> : null}</span><span className="block text-[12px] text-muted-foreground">{VINCULO[g.vinculo] || g.vinculo}</span></span>
+                            <span className="min-w-0 flex-1"><span className="block truncate text-[14.5px] font-semibold">{g.nombre}{g.yo ? <span className="font-normal text-muted-foreground"> (vos)</span> : null}</span><span className="block text-[12px] text-muted-foreground">{VINCULO[g.vinculo] || g.vinculo}{g.telefono ? <span className="tabular-nums"> · {g.telefono}</span> : null}</span></span>
+                            {(g.yo || (datos.altaDirecta && datos.soyDueno)) && <BotonEditar alTocar={() => alEditarPersona(g)} />}
                         </li>
                     ))}
                 </ul>
-                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> Si falta alguien o algo está mal, corregilo en el censo del lote o avisale a la administración.</p>
+                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> {datos.altaDirecta && datos.soyDueno ? "Como propietario podés corregir el nombre y el teléfono de cada uno, o sacar del lote a quien ya no vive ahí. Para sumar a alguien, usá el censo del lote." : "Si falta alguien o algo está mal, corregilo en el censo del lote o avisale a la administración."}</p>
             </section>
             <section className="mt-6">
                 <div className="mb-2 flex items-baseline gap-2">
@@ -457,7 +481,7 @@ function MiLote({ token, datos, alPedir, alCambiar }: { token: string; datos: Mi
                                 <span className="flex shrink-0 flex-col items-end gap-1">
                                     {sv.chapa && <Chapa p={sv.chapa} />}
                                     {sv.entra && <span className="inline-flex items-center gap-1 rounded-full chip-bien px-2 py-0.5 text-[10.5px] font-bold"><DoorOpen size={10} /> Entra en su horario</span>}
-                                    {bajaPedida(sv.id) ? <span className="text-[11.5px] text-muted-foreground">Baja pedida</span> : bajando === sv.id ? (
+                                    {datos.altaDirecta ? <BotonEditar alTocar={() => alEditarServicio(sv)} /> : bajaPedida(sv.id) ? <span className="text-[11.5px] text-muted-foreground">Baja pedida</span> : bajando === sv.id ? (
                                         <span className="flex gap-1.5">
                                             <button type="button" onClick={async () => { setError(null); const r = await pedirBajaServicio(token, sv.id); setBajando(null); if (!r.ok) setError(r.error || "No se pudo."); alCambiar(); }} className="h-8 px-2.5 rounded-[8px] pleno-mal text-[12px] font-bold">Dejó de venir</button>
                                             <button type="button" onClick={() => setBajando(null)} className="h-8 px-2 rounded-[8px] border border-border text-[12px]">No</button>
@@ -468,11 +492,14 @@ function MiLote({ token, datos, alPedir, alCambiar }: { token: string; datos: Mi
                         ))}
                     </ul>
                 )}
-                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La guardia sabe de qué lote son. Los que tienen «Entra en su horario» pasan solos por su matrícula en sus días y horas. {datos.altaDirecta ? "Sumar o dar de baja queda al guardar." : "Sumar o dar de baja es un pedido: lo aprueba la administración."}</p>
+                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La guardia sabe de qué lote son. Los que tienen «Entra en su horario» pasan solos por su matrícula en sus días y horas. {datos.altaDirecta ? "Sumar, corregir o eliminar queda al guardar." : "Sumar o dar de baja es un pedido: lo aprueba la administración."}</p>
             </section>
             {datos.otrosLotes.length > 0 && <p className="mt-4 text-[12.5px] text-muted-foreground">También figurás en: {datos.otrosLotes.join(", ")}.</p>}
             <section className="mt-6">
-                <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Tus datos</h2>
+                <div className="mb-2 flex items-baseline gap-2">
+                    <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Tus datos</h2>
+                    {(() => { const yo = datos.gente.find((g) => g.yo); return yo ? <button type="button" onClick={() => alEditarPersona(yo)} className="ml-auto inline-flex items-center gap-1 text-[13px] font-semibold text-[var(--accion)]"><Pencil size={14} /> Corregir</button> : null; })()}
+                </div>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-[14px] border border-border bg-card p-4 text-[14px]">
                     <dt className="text-muted-foreground">Nombre</dt><dd className="font-semibold">{datos.nombre}</dd>
                     <dt className="text-muted-foreground">Correo</dt><dd className="truncate">{datos.email || "—"}</dd>
@@ -599,13 +626,23 @@ function HojaQr({ g, alCerrar }: { g: MyGuest; alCerrar: () => void }) {
 }
 
 /** Pedir un proveedor del lote (26/11): quién es, cuándo viene, en qué vehículo y si entra solo. */
-function HojaServicio({ token, directo, alCerrar, alListo }: { token: string; directo: boolean; alCerrar: () => void; alListo: () => void }) {
-    const [f, setF] = useState({ tipo: "JARDINERO", nombre: "", telefono: "", chapa: "", dias: [] as string[], desde: "", hasta: "", notas: "", entrada: false });
+function HojaServicio({ token, directo, previo, alCerrar, alListo }: { token: string; directo: boolean; previo?: ServicioVisto; alCerrar: () => void; alListo: () => void }) {
+    const [f, setF] = useState(() => previo
+        ? { tipo: previo.tipo, nombre: previo.nombre, telefono: previo.telefono || "", chapa: previo.chapa || "", dias: previo.dias, desde: previo.desde || "", hasta: previo.hasta || "", notas: previo.notas || "", entrada: previo.entra }
+        : { tipo: "JARDINERO", nombre: "", telefono: "", chapa: "", dias: [] as string[], desde: "", hasta: "", notas: "", entrada: false });
     const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     const puedeEntrar = f.chapa.replace(/[^A-Z0-9]/g, "").length >= 5 && f.dias.length > 0;
+    const guardar = async () => {
+        setError(""); setOcupado(true);
+        try {
+            const d = { ...f, entrada: f.entrada && puedeEntrar };
+            const r = previo ? await editarServicio(token, previo.id, d) : await pedirServicio(token, d);
+            if (r.ok) alListo(); else setError(r.error || "No se pudo.");
+        } finally { setOcupado(false); }
+    };
     return (
-        <Hoja titulo="Sumar un proveedor" bajada={`Jardinero, piscinero, limpieza: la guardia va a saber de qué lote es. ${directo ? "Queda en tu lote al guardarlo." : "Queda como pedido hasta que la administración lo aprueba."}`} alCerrar={alCerrar}
-            pie={<><Enviar ocupado={ocupado} disabled={!f.nombre.trim() && !f.chapa.trim()} onClick={async () => { setError(""); setOcupado(true); try { const r = await pedirServicio(token, { ...f, entrada: f.entrada && puedeEntrar }); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> {directo ? "Sumarlo" : "Pedir que lo sumen"}</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+        <Hoja titulo={previo ? `Editar ${previo.nombre || previo.rotulo.toLowerCase()}` : "Sumar un proveedor"} bajada={previo ? "Corregí lo que haga falta. Los cambios quedan al guardar." : `Jardinero, piscinero, limpieza: la guardia va a saber de qué lote es. ${directo ? "Queda en tu lote al guardarlo." : "Queda como pedido hasta que la administración lo aprueba."}`} alCerrar={alCerrar}
+            pie={<><Enviar ocupado={ocupado} disabled={!f.nombre.trim() && !f.chapa.trim()} onClick={guardar}>{previo ? <><Check size={18} /> Guardar cambios</> : <><Plus size={18} /> {directo ? "Sumarlo" : "Pedir que lo sumen"}</>}</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
             <p className="mb-2 text-[13px] font-semibold">Qué hace</p>
             <div className="mb-4 grid grid-cols-2 gap-2">
                 {TIPOS_SERVICIO.map((t) => (
@@ -630,6 +667,7 @@ function HojaServicio({ token, directo, alCerrar, alListo }: { token: string; di
                 <span><span className="flex items-center gap-1.5 text-[14px] font-semibold"><DoorOpen size={15} /> Que entre solo en su horario</span><span className="block text-[12.5px] leading-snug text-muted-foreground">{puedeEntrar ? "La cámara lo reconoce por la matrícula esos días y a esa hora. Fuera de horario, la guardia lo consulta." : "Hacen falta la matrícula y los días que viene."}</span></span>
             </label>
             <Campo etiqueta="Algo para la guardia (opcional)"><input value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} placeholder="Viene con un ayudante" className={ENTRADA} /></Campo>
+            {previo && <Eliminar que="Eliminar este proveedor" explica="Deja de figurar en tu lote y, si entraba solo, deja de entrar." confirma="Sí, eliminarlo" alEliminar={() => pedirBajaServicio(token, previo.id)} alListo={alListo} />}
         </Hoja>
     );
 }
@@ -652,6 +690,66 @@ function HojaMatricula({ token, directo, alCerrar, alListo }: { token: string; d
                 <Campo etiqueta="Marca (opcional)"><input value={f.marca} onChange={(e) => setF({ ...f, marca: e.target.value })} placeholder="Toyota" className={ENTRADA} /></Campo>
                 <Campo etiqueta="Color (opcional)"><input value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} placeholder="Blanco" className={ENTRADA} /></Campo>
             </div>
+        </Hoja>
+    );
+}
+
+/**
+ * Eliminar, abajo de la hoja y con un segundo toque (27/11). Lo destructivo no va al lado de
+ * «Guardar»: se lee, se toca, y recién el segundo toque borra. Sin window.confirm (ver omniaccess-diseno).
+ */
+function Eliminar({ que, explica, confirma, alEliminar, alListo }: { que: string; explica: string; confirma: string; alEliminar: () => Promise<{ ok: boolean; error?: string }>; alListo: () => void }) {
+    const [seguro, setSeguro] = useState(false); const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
+    return (
+        <div className="mt-2 rounded-[14px] border border-[color-mix(in_oklab,var(--mal)_30%,transparent)] p-3.5">
+            {!seguro ? (
+                <button type="button" onClick={() => setSeguro(true)} className="flex w-full items-center gap-2.5 text-left">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] chip-mal"><Trash2 size={16} /></span>
+                    <span className="min-w-0"><span className="block text-[14px] font-semibold tono-mal">{que}</span><span className="block text-[12px] leading-snug text-muted-foreground">{explica}</span></span>
+                </button>
+            ) : (
+                <div>
+                    <p className="text-[13.5px] font-semibold">¿Seguro? No se puede deshacer desde acá.</p>
+                    <div className="mt-2.5 grid grid-cols-2 gap-2">
+                        <button type="button" disabled={ocupado} onClick={async () => { setError(""); setOcupado(true); try { const r = await alEliminar(); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}
+                            className={cn("h-11 rounded-[10px] pleno-mal text-[14px] font-bold inline-flex items-center justify-center gap-1.5 disabled:opacity-60", PULSABLE)}>{ocupado ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} {confirma}</button>
+                        <button type="button" onClick={() => setSeguro(false)} className={cn("h-11 rounded-[10px] border border-border text-[14px] font-semibold", PULSABLE)}>No</button>
+                    </div>
+                    {error && <p className="mt-2 text-[13px] tono-mal">{error}</p>}
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** Corregir la marca y el color de un vehículo del lote, o sacarlo (27/11). */
+function HojaVehiculo({ token, c, alCerrar, alListo }: { token: string; c: ChapaDelLote; alCerrar: () => void; alListo: () => void }) {
+    const [f, setF] = useState({ marca: c.marca || "", color: c.color || "" });
+    const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
+    return (
+        <Hoja titulo={`Editar ${c.chapa}`} bajada={c.mia ? "Está a tu nombre. Los cambios quedan al guardar." : `Es de ${c.de}. Como propietario del lote, podés corregirla o sacarla.`} alCerrar={alCerrar}
+            pie={<><Enviar ocupado={ocupado} onClick={async () => { setError(""); setOcupado(true); try { const r = await editarVehiculo(token, c.chapa, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Check size={18} /> Guardar cambios</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            <div className="mb-4 flex justify-center"><Chapa p={c.chapa} /></div>
+            <p className="mb-4 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La matrícula no se edita: si cambiaste de auto, eliminá esta y sumá la nueva.</p>
+            <div className="grid grid-cols-2 gap-2.5">
+                <Campo etiqueta="Marca"><input value={f.marca} onChange={(e) => setF({ ...f, marca: e.target.value })} placeholder="Toyota" className={ENTRADA} /></Campo>
+                <Campo etiqueta="Color"><input value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} placeholder="Blanco" className={ENTRADA} /></Campo>
+            </div>
+            <Eliminar que="Eliminar esta matrícula" explica="La cámara deja de reconocerla en la entrada." confirma="Sí, eliminarla" alEliminar={() => quitarMatricula(token, c.chapa)} alListo={alListo} />
+        </Hoja>
+    );
+}
+
+/** Corregir el nombre y el teléfono de alguien del lote, o sacarlo del lote (sólo el propietario, y no a sí mismo). */
+function HojaPersona({ token, p, puedeQuitar, alCerrar, alListo }: { token: string; p: PersonaDelLote; puedeQuitar: boolean; alCerrar: () => void; alListo: () => void }) {
+    const [f, setF] = useState({ nombre: p.nombre, telefono: p.telefono || "" });
+    const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
+    return (
+        <Hoja titulo={p.yo ? "Tus datos" : `Editar a ${p.nombre.split(" ")[0]}`} bajada={p.yo ? "Así te ve la guardia. Los cambios quedan al guardar." : `${VINCULO[p.vinculo] || p.vinculo} del lote.`} alCerrar={alCerrar}
+            pie={<><Enviar ocupado={ocupado} disabled={f.nombre.trim().length < 2} onClick={async () => { setError(""); setOcupado(true); try { const r = await editarPersona(token, p.id, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Check size={18} /> Guardar cambios</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            <Campo etiqueta="Nombre y apellido"><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} className={ENTRADA} /></Campo>
+            <Campo etiqueta="Teléfono" ayuda="La guardia lo usa para avisar que llegó alguien."><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} inputMode="tel" placeholder="099 123 456" className={ENTRADA} /></Campo>
+            {puedeQuitar && <Eliminar que="Sacar del lote" explica="Deja de figurar en este lote. Sus matrículas siguen a su nombre: sacalas antes si ya no entra." confirma="Sí, sacarla" alEliminar={() => quitarPersona(token, p.id)} alListo={alListo} />}
         </Hoja>
     );
 }
