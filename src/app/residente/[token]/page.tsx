@@ -592,7 +592,7 @@ function HojaInvitado({ inv, token, alCerrar, alListo }: { inv: MyInvitation; to
     const [nombre, setNombre] = useState(""); const [chapa, setChapa] = useState(""); const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     return (
         <Hoja titulo="Sumar un invitado" bajada={inv.title || "Evento"} alCerrar={alCerrar}
-            pie={<><Enviar ocupado={ocupado} disabled={!nombre.trim()} onClick={async () => { setOcupado(true); try { const r = await addMyGuest(token, inv.id, { name: nombre.trim(), plate: chapa.trim() || undefined }); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> Sumar</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            pie={<><Enviar ocupado={ocupado} disabled={!nombre.trim()} onClick={async () => { setOcupado(true); try { const r = await addMyGuest(token, inv.id, { name: nombre.trim(), plate: chapa.trim() || undefined }); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } catch { setError("No se pudo: revisá la conexión y probá de nuevo."); } finally { setOcupado(false); } }}><Plus size={18} /> Sumar</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
             <Campo etiqueta="Nombre"><input autoFocus value={nombre} onChange={(e) => setNombre(e.target.value)} className={ENTRADA} /></Campo>
             <Campo etiqueta="Matrícula (opcional)" ayuda="Si viene en auto, la cámara lo reconoce en la entrada."><input value={chapa} onChange={(e) => setChapa(e.target.value.toUpperCase())} placeholder="SBC1234" className={cn(ENTRADA, "font-bold tracking-wider")} /></Campo>
         </Hoja>
@@ -638,7 +638,7 @@ function HojaServicio({ token, directo, previo, alCerrar, alListo }: { token: st
             const d = { ...f, entrada: f.entrada && puedeEntrar };
             const r = previo ? await editarServicio(token, previo.id, d) : await pedirServicio(token, d);
             if (r.ok) alListo(); else setError(r.error || "No se pudo.");
-        } finally { setOcupado(false); }
+        } catch { setError("No se pudo: revisá la conexión y probá de nuevo."); } finally { setOcupado(false); }
     };
     return (
         <Hoja titulo={previo ? `Editar ${previo.nombre || previo.rotulo.toLowerCase()}` : "Sumar un proveedor"} bajada={previo ? "Corregí lo que haga falta. Los cambios quedan al guardar." : `Jardinero, piscinero, limpieza: la guardia va a saber de qué lote es. ${directo ? "Queda en tu lote al guardarlo." : "Queda como pedido hasta que la administración lo aprueba."}`} alCerrar={alCerrar}
@@ -677,7 +677,7 @@ function HojaMatricula({ token, directo, alCerrar, alListo }: { token: string; d
     const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     return (
         <Hoja titulo="Sumar una matrícula" bajada={directo ? "Queda a tu nombre al guardarla." : "Queda como pedido hasta que la administración lo aprueba. Cuando esté aprobada, la cámara la reconoce en la entrada."} alCerrar={alCerrar}
-            pie={<><Enviar ocupado={ocupado} disabled={f.chapa.replace(/[^A-Z0-9]/g, "").length < 5} onClick={async () => { setError(""); setOcupado(true); try { const r = await pedirMatricula(token, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> {directo ? "Sumarla" : "Pedir que la sumen"}</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            pie={<><Enviar ocupado={ocupado} disabled={f.chapa.replace(/[^A-Z0-9]/g, "").length < 5} onClick={async () => { setError(""); setOcupado(true); try { const r = await pedirMatricula(token, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } catch { setError("No se pudo: revisá la conexión y probá de nuevo."); } finally { setOcupado(false); } }}><Plus size={18} /> {directo ? "Sumarla" : "Pedir que la sumen"}</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
             <Campo etiqueta="Matrícula"><input autoFocus value={f.chapa} onChange={(e) => setF({ ...f, chapa: e.target.value.toUpperCase() })} placeholder="SBC1234" maxLength={10} className={cn(ENTRADA, "h-14 text-center text-[24px] font-extrabold tracking-[0.18em]")} /></Campo>
             <p className="mb-2 text-[13px] font-semibold">De quién es</p>
             <div className="mb-4 grid grid-cols-3 gap-2">
@@ -711,7 +711,7 @@ function Eliminar({ que, explica, confirma, alEliminar, alListo }: { que: string
                 <div>
                     <p className="text-[13.5px] font-semibold">¿Seguro? No se puede deshacer desde acá.</p>
                     <div className="mt-2.5 grid grid-cols-2 gap-2">
-                        <button type="button" disabled={ocupado} onClick={async () => { setError(""); setOcupado(true); try { const r = await alEliminar(); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}
+                        <button type="button" disabled={ocupado} onClick={async () => { setError(""); setOcupado(true); try { const r = await alEliminar(); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } catch { setError("No se pudo: revisá la conexión y probá de nuevo."); } finally { setOcupado(false); } }}
                             className={cn("h-11 rounded-[10px] pleno-mal text-[14px] font-bold inline-flex items-center justify-center gap-1.5 disabled:opacity-60", PULSABLE)}>{ocupado ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} {confirma}</button>
                         <button type="button" onClick={() => setSeguro(false)} className={cn("h-11 rounded-[10px] border border-border text-[14px] font-semibold", PULSABLE)}>No</button>
                     </div>
@@ -728,7 +728,7 @@ function HojaVehiculo({ token, c, alCerrar, alListo }: { token: string; c: Chapa
     const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     return (
         <Hoja titulo={`Editar ${c.chapa}`} bajada={c.mia ? "Está a tu nombre. Los cambios quedan al guardar." : `Es de ${c.de}. Como propietario del lote, podés corregirla o sacarla.`} alCerrar={alCerrar}
-            pie={<><Enviar ocupado={ocupado} onClick={async () => { setError(""); setOcupado(true); try { const r = await editarVehiculo(token, c.chapa, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Check size={18} /> Guardar cambios</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            pie={<><Enviar ocupado={ocupado} onClick={async () => { setError(""); setOcupado(true); try { const r = await editarVehiculo(token, c.chapa, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } catch { setError("No se pudo: revisá la conexión y probá de nuevo."); } finally { setOcupado(false); } }}><Check size={18} /> Guardar cambios</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
             <div className="mb-4 flex justify-center"><Chapa p={c.chapa} /></div>
             <p className="mb-4 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La matrícula no se edita: si cambiaste de auto, eliminá esta y sumá la nueva.</p>
             <div className="grid grid-cols-2 gap-2.5">
@@ -746,7 +746,7 @@ function HojaPersona({ token, p, puedeQuitar, alCerrar, alListo }: { token: stri
     const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     return (
         <Hoja titulo={p.yo ? "Tus datos" : `Editar a ${p.nombre.split(" ")[0]}`} bajada={p.yo ? "Así te ve la guardia. Los cambios quedan al guardar." : `${VINCULO[p.vinculo] || p.vinculo} del lote.`} alCerrar={alCerrar}
-            pie={<><Enviar ocupado={ocupado} disabled={f.nombre.trim().length < 2} onClick={async () => { setError(""); setOcupado(true); try { const r = await editarPersona(token, p.id, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Check size={18} /> Guardar cambios</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            pie={<><Enviar ocupado={ocupado} disabled={f.nombre.trim().length < 2} onClick={async () => { setError(""); setOcupado(true); try { const r = await editarPersona(token, p.id, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } catch { setError("No se pudo: revisá la conexión y probá de nuevo."); } finally { setOcupado(false); } }}><Check size={18} /> Guardar cambios</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
             <Campo etiqueta="Nombre y apellido"><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} className={ENTRADA} /></Campo>
             <Campo etiqueta="Teléfono" ayuda="La guardia lo usa para avisar que llegó alguien."><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} inputMode="tel" placeholder="099 123 456" className={ENTRADA} /></Campo>
             {puedeQuitar && <Eliminar que="Sacar del lote" explica="Deja de figurar en este lote. Sus matrículas siguen a su nombre: sacalas antes si ya no entra." confirma="Sí, sacarla" alEliminar={() => quitarPersona(token, p.id)} alListo={alListo} />}

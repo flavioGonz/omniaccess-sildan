@@ -46,6 +46,12 @@ const ANONIMAS = new Set([
     "src/app/actions/portal-residente.ts#anularPedido",
     "src/app/actions/portal-residente.ts#pedirServicio",
     "src/app/actions/portal-residente.ts#pedirBajaServicio",
+    // Editar y quitar registros del lote (27/11): validan el token y, para lo ajeno, que sea el propietario.
+    "src/app/actions/portal-residente.ts#editarPersona",
+    "src/app/actions/portal-residente.ts#quitarPersona",
+    "src/app/actions/portal-residente.ts#editarVehiculo",
+    "src/app/actions/portal-residente.ts#quitarMatricula",
+    "src/app/actions/portal-residente.ts#editarServicio",
 ]);
 
 /**
@@ -113,6 +119,9 @@ export function nombreDeAccion(id: string): string | null {
     }
     return mapa.get(id) || null;
 }
+
+/** ¿La puede correr cualquiera sin sesión? Para las pruebas: el portal del residente no tiene sesión del panel. */
+export const esAnonima = (nombre: string) => ANONIMAS.has(nombre);
 
 /** ¿Puede correr esta acción quien no tiene sesión del panel? `guardia`: si trae la cookie del guardia válida. */
 export function accionPermitidaSinSesion(id: string, guardia: boolean): { ok: boolean; nombre: string | null } {

@@ -872,7 +872,7 @@ function Gracias({ marca, lote, vehiculos, servicios, ubicado, alCorregir, porta
                 <div className="mx-auto mt-8 max-w-[460px] rounded-[10px] border border-border bg-card p-4 text-left">
                     <p className="flex items-center gap-2 text-[14px] font-bold"><Sparkles size={15} className="tono-accion" /> Lo que viene</p>
                     <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted-foreground">
-                        Cuando esté aprobado, la cámara reconoce tu matrícula al llegar y la guardia te ve
+                        {aplicada ? "Desde ahora la cámara" : "Cuando esté aprobado, la cámara"} reconoce tu matrícula al llegar y la guardia te ve
                         entrar sin que tengas que avisar. Lo que pasa en tu entrada queda registrado con su foto.
                     </p>
                 </div>
