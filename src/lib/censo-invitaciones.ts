@@ -150,8 +150,10 @@ export const LOGO_ANCHO = 122;
 export const LOGO_ALTO = 30;
 
 /** El correo que recibe cada lote. Texto y HTML: el texto es el que llega cuando el HTML no se ve. */
-export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, conLogo }: {
+export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, conLogo, recordatorio }: {
     barrio: string; lote: string; url: string; clave: string; nombre?: string;
+    /** El segundo correo, a quien no completó (27/11): lo dice en el asunto y arriba de todo. */
+    recordatorio?: boolean;
     /** Cuando la persona tiene más de un lote (el código es por persona): todos, como se leen. */
     lotes?: string[];
     /** El logo viaja adjunto con `CID_LOGO`. Sin eso la marca va escrita, que es lo que se ve si la imagen falta. */
@@ -162,8 +164,10 @@ export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, co
     const varios = (lotes?.length || 0) > 1;
     /* «A 2 (4-5) y C 1a (6ª)»: con dos o tres lotes se nombran todos, y el correo lo dice en plural. */
     if (varios) lote = `${lotes!.slice(0, -1).join(", ")} y ${lotes![lotes!.length - 1]}`;
-    const asunto = `Censo de vehículos · ${varios ? "lotes" : "lote"} ${lote}`;
+    const asunto = `${recordatorio ? "Recordatorio · " : ""}Censo de vehículos · ${varios ? "lotes" : "lote"} ${lote}`;
+    const aviso = recordatorio ? `Te escribimos de nuevo porque ${varios ? "tus lotes todavía no tienen" : "tu lote todavía no tiene"} el censo completo.` : "";
     const texto = [
+        ...(aviso ? [aviso, ``] : []),
         `${quien ? `${quien}este` : "Este"} es el registro de vehículos ${varios ? `de tus lotes ${lote}` : `del lote ${lote}`} de ${casa}.`,
         ...(varios ? [``, `El enlace sirve para todos: al entrar elegís para cuál cargás, y volvés a entrar para el otro.`] : []),
         ``,
@@ -195,6 +199,7 @@ export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, co
   </tr></table>
 </td></tr>
 <tr><td style="padding:20px 24px 0">
+  ${aviso ? `<p style="margin:0 0 12px;display:inline-block;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:8px;padding:6px 10px;font-size:13px;font-weight:600">${escaparHtml(aviso)}</p>` : ""}
   <h1 style="margin:0;font-size:22px;line-height:1.2;color:#0a0e14;letter-spacing:-.02em">Censo de vehículos · ${varios ? "lotes" : "lote"} ${escaparHtml(lote)}</h1>
   <p style="margin:12px 0 0;font-size:15px;line-height:1.55;color:#334155">
     ${quien ? `${escaparHtml(quien)}cargá` : "Cargá"} las matrículas que entran a tu casa y quién te visita seguido.

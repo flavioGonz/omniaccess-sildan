@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Clock, Download, Mail, Pause, Play, RefreshCw, Send, ShieldCheck, Timer, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, BellRing, Check, Clock, Download, Mail, Pause, Play, RefreshCw, Send, ShieldCheck, Timer, Trash2, Upload } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
@@ -130,6 +130,24 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
             if (cambio.activo === false) toast.success({ title: "Envío en pausa", description: "Las que faltan quedan sin enviar hasta que lo vuelvas a poner en marcha." });
         } catch { toast.error({ title: "No se pudo" }); }
         finally { setCambiandoGoteo(false); }
+    }
+
+    const [recordando, setRecordando] = useState(false);
+    const [seguroRecordar, setSeguroRecordar] = useState(false);
+    /** El recordatorio a los que no completaron (27/11): sale por el envío de a poco, detrás de lo que falte. */
+    async function recordar(valor: boolean) {
+        setRecordando(true);
+        try {
+            const r = await fetch("/api/censo/invitaciones", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ accion: "recordar", valor }) });
+            const j = await r.json();
+            if (!r.ok) { toast.error({ title: "No se pudo", description: j?.error }); return; }
+            setD((v) => (v ? { ...v, goteo: j.goteo } : v));
+            setSeguroRecordar(false);
+            toast.success(valor
+                ? { title: `Recordatorio en marcha: ${j.cuantos} ${j.cuantos === 1 ? "persona" : "personas"}`, description: "Sale de a poco, dentro del horario y con el tope de cada casilla. Podés cerrar esta ventana: sigue solo." }
+                : { title: "Recordatorio cancelado", description: "Los que ya lo recibieron, lo recibieron; al resto no le sale." });
+        } catch { toast.error({ title: "No se pudo" }); }
+        finally { setRecordando(false); }
     }
 
     async function importar(f: File) {
@@ -324,6 +342,39 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                                     </label>
                                                 </div>
                                             </>
+                                        );
+                                    })()}
+                                </CajonSeccion>
+
+                                <CajonSeccion titulo="Recordar a los que no completaron" icono={BellRing} compacta
+                                    ayuda="Les manda de nuevo su enlace, con «Recordatorio» en el asunto, a las personas de los lotes que recibieron la invitación y donde nadie cargó el censo todavía. Si alguien del lote ya cargó, ese lote no recibe nada. Sale de a poco como las invitaciones, con el mismo horario y el tope de cada casilla.">
+                                    {(() => {
+                                        const g = d.goteo;
+                                        if (g.recordar) return (
+                                            <div className="rounded-[10px] border border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_7%,transparent)] p-3.5">
+                                                <p className="flex items-center gap-2 text-[13.5px] font-bold">
+                                                    <span className={cn("h-2 w-2 shrink-0 rounded-full", g.activo ? "bg-[var(--bien)] animate-pulse" : "bg-[var(--aviso)]")} />
+                                                    {g.activo ? "Recordatorio en marcha" : "Recordatorio en pausa"}
+                                                    <span className="ml-auto text-[12px] font-semibold tabular-nums text-muted-foreground">quedan {g.porRecordar}</span>
+                                                </p>
+                                                <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">Pedido el {diaSemana(g.recordar)} a las {hora(g.recordar)}. {g.activo ? "Sale detrás de las invitaciones que falten." : "Ponelo en marcha con «Enviar de a poco»."}</p>
+                                                <button type="button" onClick={() => recordar(false)} disabled={recordando} className="mt-2 text-[12px] font-semibold text-muted-foreground hover:text-[var(--mal)] hover:underline disabled:opacity-50">Cancelar el recordatorio</button>
+                                            </div>
+                                        );
+                                        if (!g.porRecordar) return <p className="rounded-[10px] border border-dashed border-border p-3.5 text-[12.5px] text-muted-foreground">Nadie pendiente: todos los lotes que recibieron la invitación ya cargaron el censo.</p>;
+                                        return (
+                                            <div className="rounded-[10px] border border-border p-3.5">
+                                                <p className="text-[13.5px] font-bold"><span className="tabular-nums">{g.porRecordar}</span> {g.porRecordar === 1 ? "persona recibió la invitación y su lote todavía no cargó" : "personas recibieron la invitación y sus lotes todavía no cargaron"} el censo.</p>
+                                                {!seguroRecordar ? (
+                                                    <Button className="mt-2.5" onClick={() => setSeguroRecordar(true)} disabled={!d.correoListo || recordando}><BellRing size={14} /> Recordarles a {g.porRecordar}</Button>
+                                                ) : (
+                                                    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                                                        <Button onClick={() => recordar(true)} disabled={recordando}>{recordando ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Sí, mandar el recordatorio</Button>
+                                                        <Button variant="outline" onClick={() => setSeguroRecordar(false)} disabled={recordando}>No</Button>
+                                                        <span className="w-full text-[11.5px] text-muted-foreground">Sale de a poco, desde la casilla de cada administración{g.activo ? ", detrás de las invitaciones que falten" : ""}.</span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         );
                                     })()}
                                 </CajonSeccion>

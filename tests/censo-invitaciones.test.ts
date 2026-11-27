@@ -111,3 +111,14 @@ test("un código puesto a mano puede tener cualquier letra o número, de 6 a 12"
     assert.deepEqual(seConfunden("LOTE-0215").sort(), ["0", "1", "2", "5", "L", "O"]);
     assert.deepEqual(seConfunden(nuevaClave()), []);
 });
+
+test("el recordatorio lo dice en el asunto y arriba del correo; la invitación no (27/11)", () => {
+    const base = { barrio: "Barrio", lote: "B4", url: "https://x.uy/registro/AB", clave: "AB" };
+    const r = correoDeInvitacion({ ...base, recordatorio: true });
+    assert.match(r.asunto, /^Recordatorio · Censo de vehículos · lote B4$/);
+    assert.match(r.texto, /^Te escribimos de nuevo porque tu lote todavía no tiene el censo completo\./);
+    assert.match(r.html, /Te escribimos de nuevo/);
+    const i = correoDeInvitacion(base);
+    assert.doesNotMatch(i.asunto, /Recordatorio/);
+    assert.doesNotMatch(i.html, /Te escribimos de nuevo/);
+});

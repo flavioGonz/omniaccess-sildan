@@ -79,3 +79,10 @@ test("goteo: las casillas frenadas se leen sanas y lo raro se descarta", () => {
     assert.deepEqual(g.frenadas, { "a@gmail.com": "2026-11-26T12:00:00.000Z" });
     assert.deepEqual(leerGoteo("{}").frenadas, {});
 });
+
+test("el recordatorio se guarda como la hora en que se pidió, y lo que no es fecha no pasa (27/11)", () => {
+    assert.equal(GOTEO_DEFECTO.recordar, null);
+    assert.equal(leerGoteo(JSON.stringify({ recordar: "2026-11-27T15:00:00.000Z" })).recordar, "2026-11-27T15:00:00.000Z");
+    assert.equal(leerGoteo(JSON.stringify({ recordar: "mañana" })).recordar, null);
+    assert.equal(leerGoteo(JSON.stringify({ recordar: 5 })).recordar, null);
+});

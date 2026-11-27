@@ -37,9 +37,16 @@ export type Goteo = {
      * Las demás siguen mandando: una administración frenada no para a las otras tres.
      */
     frenadas: Record<string, string>;
+    /**
+     * El recordatorio a los que no completaron (27/11, Nico: «un botón que envíe invitación a las
+     * personas que no llenaron el censo»). Es la hora en que se pidió: le toca a cada invitación
+     * mandada ANTES de esa hora, de un lote donde nadie cargó todavía. Al mandarle el recordatorio
+     * su `enviadoAt` pasa a ser posterior y deja de tocarle: no hace falta otra columna. Null: no hay.
+     */
+    recordar: string | null;
 };
 
-export const GOTEO_DEFECTO: Goteo = { activo: false, cadaSeg: 60, desde: 9, hasta: 20, proximo: null, fallas: 0, motivo: null, origen: "", frenadas: {} };
+export const GOTEO_DEFECTO: Goteo = { activo: false, cadaSeg: 60, desde: 9, hasta: 20, proximo: null, fallas: 0, motivo: null, origen: "", frenadas: {}, recordar: null };
 /** Los ritmos que se ofrecen. Más rápido que uno cada 30 segundos ya no es «de a poco». */
 export const RITMOS: { seg: number; rotulo: string }[] = [
     { seg: 30, rotulo: "Uno cada 30 segundos" }, { seg: 60, rotulo: "Uno por minuto" }, { seg: 120, rotulo: "Uno cada 2 minutos" }, { seg: 300, rotulo: "Uno cada 5 minutos" },
@@ -63,6 +70,7 @@ export function leerGoteo(v: unknown): Goteo {
         origen: typeof g.origen === "string" && /^https?:\/\/[^\s/]+$/.test(g.origen) ? g.origen : "",
         frenadas: Object.fromEntries(Object.entries(g.frenadas && typeof g.frenadas === "object" ? (g.frenadas as Record<string, unknown>) : {})
             .filter(([k, v]) => k.includes("@") && typeof v === "string" && !Number.isNaN(Date.parse(v))) as [string, string][]),
+        recordar: typeof g.recordar === "string" && !Number.isNaN(Date.parse(g.recordar)) ? g.recordar : null,
     };
 }
 

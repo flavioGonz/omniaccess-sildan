@@ -26,7 +26,7 @@ export const INTENTOS_MAX = 3;
  * Lo que se manda: la invitación del lote (a su principal) o una copia del mismo código a otro
  * residente del lote (`copia`: el id de la fila de CopiaCenso; 25/11, «a todos los residentes»).
  */
-type Inv = { id: string; lote: string; lotes: unknown; nombre: string; email: string; clave: string; copia?: string };
+type Inv = { id: string; lote: string; lotes: unknown; nombre: string; email: string; clave: string; copia?: string; recordatorio?: boolean };
 
 /** Una copia pendiente, con lo de su invitación, en la forma de lo que se manda. */
 type CopiaConInv = { id: string; email: string; nombre: string; invitacion: { id: string; lote: string; lotes: unknown; clave: string } };
@@ -75,7 +75,7 @@ export async function mandarInvitacion(inv: Inv, origen: string, remitente?: Rem
     const { asunto, texto, html } = correoDeInvitacion({
         barrio: marca.barrio || marca.name, lote: inv.lote, nombre: inv.nombre || undefined,
         lotes: (Array.isArray(inv.lotes) ? (inv.lotes as { nombre?: unknown }[]) : []).map((l) => String(l?.nombre || "")).filter(Boolean),
-        clave: inv.clave, url: `${origen}/registro/${inv.clave}${inv.copia ? `?de=${encodeURIComponent(inv.copia)}` : ""}`, conLogo: !!imagen,
+        clave: inv.clave, url: `${origen}/registro/${inv.clave}${inv.copia ? `?de=${encodeURIComponent(inv.copia)}` : ""}`, conLogo: !!imagen, recordatorio: !!inv.recordatorio,
     });
     const r = await enviarCorreo({ para: inv.email, asunto, texto, html, enLinea: imagen ? [{ cid: CID_LOGO, nombre: "omniaccess.png", contenido: imagen }] : undefined },
         { desde: de.tipo === "administracion" ? de.cuenta : null });
@@ -123,6 +123,21 @@ export async function guardarGoteo(g: Goteo): Promise<void> {
 /** Las que todavía se pueden mandar: sin enviar y sin haber fallado tres veces. */
 const PENDIENTES = { enviadoAt: null, intentos: { lt: INTENTOS_MAX } } as const;
 
+/**
+ * A quiénes les toca el recordatorio pedido a la hora `desde` (ver Goteo.recordar): mandadas antes
+ * de esa hora, sin error, y de un lote donde NADIE cargó todavía. Por lote y no por persona: si el
+ * dueño ya completó el censo, recordarle a la esposa que lo complete es correo de más. Un
+ * recordatorio que falla queda con su error y no se reintenta solo (como las invitaciones).
+ */
+const nadieCargo = { usadoAt: null, copias: { none: { usadoAt: { not: null } } } } as const;
+const porRecordarInv = (desde: Date) => ({ sitio: "", enviadoAt: { lt: desde }, error: null, ...nadieCargo });
+const porRecordarCopia = (desde: Date) => ({ enviadoAt: { lt: desde }, usadoAt: null, error: null, invitacion: { sitio: "", ...nadieCargo } });
+/** Cuántos recibirían el recordatorio pedido a la hora `desde` (ahora, si no hay uno en marcha). */
+export async function contarPorRecordar(desde: Date): Promise<number> {
+    const [a, b] = await Promise.all([prisma.invitacionCenso.count({ where: porRecordarInv(desde) }), prisma.copiaCenso.count({ where: porRecordarCopia(desde) })]);
+    return a + b;
+}
+
 /** Cómo va cada cuenta: desde qué casilla sale cada grupo, cuántas faltan y cuántas salieron. */
 export type EnvioPorCuenta = {
     administracionId: string | null; nombre: string; cuenta: string | null; lista: boolean; pendientes: number; enviadas: number;
@@ -140,7 +155,9 @@ async function enviadasHoyPorCuenta(ahora: Date): Promise<Map<string, number>> {
     for (const f of [...a, ...b]) { const k = String(f.enviadoDesde).toLowerCase(); m.set(k, (m.get(k) || 0) + f._count._all); }
     return m;
 }
-export type EstadoGoteo = Goteo & { pendientes: number; conError: number; enHorario: boolean; terminaAt: string | null; porCuenta: EnvioPorCuenta[] };
+export type EstadoGoteo = Goteo & { pendientes: number; conError: number; enHorario: boolean; terminaAt: string | null; porCuenta: EnvioPorCuenta[];
+    /** Cuántos no completaron: los que recibirían el recordatorio ahora, o los que le quedan al que está en marcha. */
+    porRecordar: number };
 export async function estadoDeGoteo(): Promise<EstadoGoteo> {
     const [g, pi, pc, ei, ec, invs, copias, admins] = await Promise.all([
         leerGoteoGuardado(),
@@ -151,7 +168,8 @@ export async function estadoDeGoteo(): Promise<EstadoGoteo> {
         administracionesParaCorreo(),
     ]);
     /* Las copias (25/11, a todos) cuentan en cada casilla igual que las invitaciones: salen de la misma. */
-    const pendientes = pi + pc, conError = ei + ec;
+    const porRecordar = await contarPorRecordar(g.recordar ? new Date(g.recordar) : new Date());
+    const pendientes = pi + pc + (g.recordar ? porRecordar : 0), conError = ei + ec;
     const todas = [...invs, ...copias.map((c) => ({ lotes: c.invitacion.lotes, enviadoAt: c.enviadoAt, intentos: c.intentos }))];
     const ahora = new Date();
     const [unidades, hoy] = await Promise.all([
@@ -174,7 +192,7 @@ export async function estadoDeGoteo(): Promise<EstadoGoteo> {
         const x = grupos.get(k)!;
         if (i.enviadoAt) x.enviadas++; else if (i.intentos < INTENTOS_MAX) x.pendientes++;
     }
-    return { ...g, pendientes, conError, enHorario: enHorario(g, ahora, ZONA), terminaAt: estimarFin(g, pendientes, ahora, ZONA)?.toISOString() || null,
+    return { ...g, porRecordar, pendientes, conError, enHorario: enHorario(g, ahora, ZONA), terminaAt: estimarFin(g, pendientes, ahora, ZONA)?.toISOString() || null,
         porCuenta: [...grupos.values()].sort((a, b) => (a.administracionId ? 0 : 1) - (b.administracionId ? 0 : 1) || a.nombre.localeCompare(b.nombre)) };
 }
 
@@ -202,6 +220,11 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
         const pendientes: Inv[] = [
             ...await prisma.invitacionCenso.findMany({ where: PENDIENTES, orderBy: { clave: "asc" } }),
             ...(await prisma.copiaCenso.findMany({ where: PENDIENTES, orderBy: { email: "asc" }, select: { id: true, email: true, nombre: true, ...CON_INV } })).map(comoEnvio),
+            /* Y al final, si se pidió, el recordatorio a los lotes que no completaron (27/11). */
+            ...(g.recordar ? [
+                ...(await prisma.invitacionCenso.findMany({ where: porRecordarInv(new Date(g.recordar)), orderBy: { clave: "asc" } })).map((i) => ({ ...i, recordatorio: true })),
+                ...(await prisma.copiaCenso.findMany({ where: porRecordarCopia(new Date(g.recordar)), orderBy: { email: "asc" }, select: { id: true, email: true, nombre: true, ...CON_INV } })).map((c) => ({ ...comoEnvio(c), recordatorio: true })),
+            ] : []),
         ];
         const [admins, unidades] = await Promise.all([
             administracionesParaCorreo(),
@@ -235,7 +258,7 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
         }
         if (!inv) {
             const conError = await prisma.invitacionCenso.count({ where: { enviadoAt: null } }) + await prisma.copiaCenso.count({ where: { enviadoAt: null } });
-            await guardarGoteo({ ...g, activo: false, proximo: null, fallas: 0, motivo: conError ? `Terminó. Quedaron ${conError} sin poder enviarse: mirá el motivo de cada una en la lista.` : "Terminó: se enviaron todas." });
+            await guardarGoteo({ ...g, activo: false, proximo: null, fallas: 0, recordar: null, motivo: conError ? `Terminó. Quedaron ${conError} sin poder enviarse: mirá el motivo de cada una en la lista.` : g.recordar ? "Terminó: se mandó el recordatorio a todos los que no habían completado." : "Terminó: se enviaron todas." });
             return { que: "terminado" };
         }
         /* La dirección de los enlaces: nunca una local (ver lib/origen-publico; 25/11 salieron con localhost). */

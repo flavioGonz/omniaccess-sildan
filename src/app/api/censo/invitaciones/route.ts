@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { leerPlanilla, nuevaClave, type FilaPlanilla } from "@/lib/censo-invitaciones";
 import { configCorreo, copiaFija, probarCorreo } from "@/lib/correo";
 import { hayDesdeDondeMandar } from "@/lib/correo-administracion";
-import { estadoDeGoteo, guardarGoteo, invitacionesDePersona, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
+import { contarPorRecordar, estadoDeGoteo, guardarGoteo, invitacionesDePersona, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
 import { leerGoteo } from "@/lib/censo-goteo";
 import { revisarDominio } from "@/lib/correo-dominio";
 import { origenPublico } from "@/lib/origen-publico";
@@ -29,7 +29,7 @@ const POR_TANDA = 25;
  * GET    — la lista, el resumen y si el dominio del remitente está en condiciones de mandar.
  *          `?resumen=1`: sólo en qué está cada invitación, sin claves — lo que usa el padrón.
  * POST   — la planilla (multipart, xlsx o csv): da de alta las invitaciones que faltan.
- * PUT    — { accion: "goteo" | "enviar" | "persona" | "probar" | "clave" } : poner en marcha o
+ * PUT    — { accion: "goteo" | "recordar" | "enviar" | "persona" | "probar" | "clave" } : poner en marcha o
  *          pausar el envío de a poco, mandar unas pocas ya, mandársela a una persona del padrón,
  *          probar el correo, prender o apagar la clave por lote.
  * DELETE — ?id= : sacar una invitación.
@@ -198,6 +198,25 @@ export async function PUT(req: NextRequest) {
         await guardarGoteo(nuevo);
         if (activo !== antes.activo) await auditar(q.sesion, activo ? "censo.envio-de-a-poco.empezar" : "censo.envio-de-a-poco.pausar", `uno cada ${nuevo.cadaSeg} s, de ${nuevo.desde} a ${nuevo.hasta} h`, true, "");
         return NextResponse.json({ goteo: await estadoDeGoteo() }, { headers: SIN_CACHE });
+    }
+
+    /* El recordatorio a los que no completaron (27/11): va por el mismo envío de a poco, con su tope
+       por casilla y su horario, detrás de las invitaciones que falten. `valor: false` lo cancela. */
+    if (b?.accion === "recordar") {
+        const antes = await leerGoteoGuardado();
+        if (b?.valor === false) {
+            await guardarGoteo({ ...antes, recordar: null });
+            await auditar(q.sesion, "censo.recordatorio.cancelar", "", true, "");
+            return NextResponse.json({ goteo: await estadoDeGoteo() }, { headers: SIN_CACHE });
+        }
+        if (!origen) return sinOrigen();
+        if (!(await hayDesdeDondeMandar())) return NextResponse.json({ error: "No hay desde dónde mandar: cargá la cuenta de correo de cada administración (Administraciones › Correo)." }, { status: 400 });
+        const desde = new Date();
+        const cuantos = await contarPorRecordar(desde);
+        if (!cuantos) return NextResponse.json({ error: "No hay a quién recordarle: todos los lotes con la invitación mandada ya cargaron el censo." }, { status: 400 });
+        await guardarGoteo({ ...antes, recordar: desde.toISOString(), ...(antes.activo ? {} : { activo: true, fallas: 0, motivo: null, proximo: null }), origen });
+        await auditar(q.sesion, "censo.recordatorio.empezar", `${cuantos} personas de lotes sin censo`, true, "");
+        return NextResponse.json({ goteo: await estadoDeGoteo(), cuantos }, { headers: SIN_CACHE });
     }
 
     if (b?.accion === "persona") {
