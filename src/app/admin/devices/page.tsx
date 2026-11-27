@@ -129,6 +129,9 @@ import { SyncToDevicesDialog } from "@/components/SyncToDevicesDialog";
 import { VistaArea } from "@/components/devices/VistaArea";
 import { BotonCuentas } from "@/components/devices/usuarios/CuentasEquipos";
 import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, SIN_AREA, TODAS, TODOS_LOS_TIPOS } from "@/components/devices/ArbolAreas";
+
+/** Las cámaras con video: graban en un NVR, tienen vivo y reloj (LPR de acceso, LPR interior e intrusión). */
+const CAMARAS_VIDEO = ["LPR_CAMERA", "LPR_INTERIOR", "CAMERA"];
 import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
@@ -773,7 +776,10 @@ export default function DevicesPage() {
                                         {dev.location && <p className="text-[10px] text-muted-foreground truncate max-w-[110px] flex items-center gap-1"><Globe size={9} /> {dev.location}</p>}
                                     </TableCell>
                                     <TableCell>
-                                        {dev.deviceType !== 'LPR_CAMERA' ? <span className="text-muted-foreground text-xs">—</span> : (
+                                        {/* Toda cámara graba en algún NVR (27/11, Nico: «no puedo calcular la retención de las
+                                            cámaras que se marcan como LPR pero no lo son, y las demás tampoco traen su grabación»):
+                                            la celda era sólo de las LPR de acceso; las interiores y las de intrusión quedaban en «—». */}
+                                        {!CAMARAS_VIDEO.includes(dev.deviceType) ? <span className="text-muted-foreground text-xs">—</span> : (
                                             <CeldaGrabacion g={grab[dev.id]} detectando={detectando === dev.id || detectando === "__todas__"} calculando={calculando === dev.id}
                                                 onDetectar={() => detectar([dev.id])} onRetencion={() => retencion(dev.id)} />
                                         )}
@@ -812,7 +818,7 @@ export default function DevicesPage() {
                                                     </span>
                                                     <span className={cn("h-6 w-6 rounded grid place-items-center", pull ? "text-emerald-500 bg-emerald-500/10" : "text-muted-foreground/50")} data-tooltip-id="tt-grab" data-tooltip-content={`Pull: ${dev.lastOnlinePull ? new Date(dev.lastOnlinePull).toLocaleTimeString("es-UY") : "nunca"}`}><DownloadCloud size={12} /></span>
                                                     <span className={cn("h-6 w-6 rounded grid place-items-center", push ? "text-blue-500 bg-blue-500/10" : "text-muted-foreground/50")} data-tooltip-id="tt-grab" data-tooltip-content={`Push (eventos): ${dev.lastOnlinePush ? new Date(dev.lastOnlinePush).toLocaleTimeString("es-UY") : "nunca"}`}><UploadCloud size={12} /></span>
-                                                    {dev.deviceType === "LPR_CAMERA" && (
+                                                    {CAMARAS_VIDEO.includes(dev.deviceType) && (
                                                         <span className={cn("h-6 w-6 rounded grid place-items-center", st === "ok" ? "text-violet-500 bg-violet-500/10" : st === "no" ? "text-red-500 bg-red-500/10" : "text-muted-foreground/50")}
                                                             data-tooltip-id="tt-grab" data-tooltip-content={`Video en vivo: ${st === "nd" ? "sondeando…" : st === "no" ? "no configurado" : `configurado · ${h.streamProducers} fuente(s)`}`}>
                                                             {streamBusy === dev.id ? <Loader2 size={11} className="animate-spin" /> : <Radio size={12} />}
@@ -889,7 +895,7 @@ export default function DevicesPage() {
                                                         </DropdownMenuItem>
                                                     )}
 
-                                                    {dev.deviceType === 'LPR_CAMERA' && (
+                                                    {CAMARAS_VIDEO.includes(dev.deviceType) && (
                                                         <>
                                                             <DropdownMenuItem onClick={() => setPedirHora([dev])} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-emerald-400 focus:bg-foreground/10 focus:text-emerald-400">
                                                                 <TimerReset size={14} /> Sincronizar hora
