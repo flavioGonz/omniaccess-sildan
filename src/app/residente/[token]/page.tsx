@@ -123,8 +123,8 @@ export default function PortalResidente() {
                 {hoja?.que === "invitar" && <HojaInvitar key="i" kind={hoja.kind} token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); ir("invitar"); }} />}
                 {hoja?.que === "invitado" && <HojaInvitado key="g" inv={hoja.inv} token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
                 {hoja?.que === "qr" && <HojaQr key="q" g={hoja.g} alCerrar={() => setHoja(null)} />}
-                {hoja?.que === "matricula" && <HojaMatricula key="m" token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
-                {hoja?.que === "servicio" && <HojaServicio key="s" token={token} directo={!!datos?.serviciosDirectos} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
+                {hoja?.que === "matricula" && <HojaMatricula key="m" token={token} directo={!!datos?.altaDirecta} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
+                {hoja?.que === "servicio" && <HojaServicio key="s" token={token} directo={!!datos?.altaDirecta} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
             </AnimatePresence>
         </Marco>
     );
@@ -315,7 +315,7 @@ function Vehiculos({ token, datos, alPedir, alCambiar }: { token: string; datos:
     const bajaPedida = (c: string) => pendientes.some((p) => p.tipo === "MATRICULA_BAJA" && p.chapa === c);
     return (
         <div>
-            <Titulo rotulo="Vehículos" titulo="Tus matrículas" bajada="Con estas matrículas la cámara te reconoce en la entrada. Sumar o sacar una es un pedido: lo aprueba la administración." />
+            <Titulo rotulo="Vehículos" titulo="Tus matrículas" bajada={`Con estas matrículas la cámara te reconoce en la entrada. ${datos.altaDirecta ? "Sumar o sacar una queda al guardar." : "Sumar o sacar una es un pedido: lo aprueba la administración."}`} />
             <button type="button" onClick={alPedir} className={cn("h-12 w-full rounded-[10px] bg-[var(--accion)] text-[15px] font-bold text-white inline-flex items-center justify-center gap-2", PULSABLE)}><Plus size={18} /> Sumar una matrícula</button>
             {error && <p className="mt-3 text-[13px] tono-mal">{error}</p>}
 
@@ -468,7 +468,7 @@ function MiLote({ token, datos, alPedir, alCambiar }: { token: string; datos: Mi
                         ))}
                     </ul>
                 )}
-                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La guardia sabe de qué lote son. Los que tienen «Entra en su horario» pasan solos por su matrícula en sus días y horas. {datos.serviciosDirectos ? "Sumar o dar de baja queda al guardar." : "Sumar o dar de baja es un pedido: lo aprueba la administración."}</p>
+                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La guardia sabe de qué lote son. Los que tienen «Entra en su horario» pasan solos por su matrícula en sus días y horas. {datos.altaDirecta ? "Sumar o dar de baja queda al guardar." : "Sumar o dar de baja es un pedido: lo aprueba la administración."}</p>
             </section>
             {datos.otrosLotes.length > 0 && <p className="mt-4 text-[12.5px] text-muted-foreground">También figurás en: {datos.otrosLotes.join(", ")}.</p>}
             <section className="mt-6">
@@ -634,12 +634,12 @@ function HojaServicio({ token, directo, alCerrar, alListo }: { token: string; di
     );
 }
 
-function HojaMatricula({ token, alCerrar, alListo }: { token: string; alCerrar: () => void; alListo: () => void }) {
+function HojaMatricula({ token, directo, alCerrar, alListo }: { token: string; directo: boolean; alCerrar: () => void; alListo: () => void }) {
     const [f, setF] = useState({ chapa: "", tipo: "PROPIO", marca: "", color: "", quien: "" });
     const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     return (
-        <Hoja titulo="Sumar una matrícula" bajada="Queda como pedido hasta que la administración lo aprueba. Cuando esté aprobada, la cámara la reconoce en la entrada." alCerrar={alCerrar}
-            pie={<><Enviar ocupado={ocupado} disabled={f.chapa.replace(/[^A-Z0-9]/g, "").length < 5} onClick={async () => { setError(""); setOcupado(true); try { const r = await pedirMatricula(token, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> Pedir que la sumen</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+        <Hoja titulo="Sumar una matrícula" bajada={directo ? "Queda a tu nombre al guardarla." : "Queda como pedido hasta que la administración lo aprueba. Cuando esté aprobada, la cámara la reconoce en la entrada."} alCerrar={alCerrar}
+            pie={<><Enviar ocupado={ocupado} disabled={f.chapa.replace(/[^A-Z0-9]/g, "").length < 5} onClick={async () => { setError(""); setOcupado(true); try { const r = await pedirMatricula(token, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> {directo ? "Sumarla" : "Pedir que la sumen"}</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
             <Campo etiqueta="Matrícula"><input autoFocus value={f.chapa} onChange={(e) => setF({ ...f, chapa: e.target.value.toUpperCase() })} placeholder="SBC1234" maxLength={10} className={cn(ENTRADA, "h-14 text-center text-[24px] font-extrabold tracking-[0.18em]")} /></Campo>
             <p className="mb-2 text-[13px] font-semibold">De quién es</p>
             <div className="mb-4 grid grid-cols-3 gap-2">

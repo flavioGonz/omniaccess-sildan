@@ -99,8 +99,10 @@ const CLAVE = "oa.censo.borrador";
  */
 export type CargaPrevia = { id: string; cuando: string; datos: Partial<Form> };
 
-export function Formulario({ centro, invitacion, cargas = [], previa, portal }: {
+export function Formulario({ centro, invitacion, cargas = [], previa, portal, altaDirecta = false }: {
     centro: [number, number];
+    /** Barrio abierto con invitación: lo cargado queda dado de alta al guardar, sin revisión. */
+    altaDirecta?: boolean;
     /** Su portal del residente (26/11): el mismo sistema que el censo, para invitar y ver sus matrículas. */
     portal?: string | null;
     /** Su carga sin revisar todavía, si la hay (ver CargaPrevia). */
@@ -162,6 +164,9 @@ export function Formulario({ centro, invitacion, cargas = [], previa, portal }: 
     const puedeSeguir = paso > 0 || !!(f.lote.trim() && f.apellido.trim().length >= 2
         && f.telefono.replace(/\D/g, "").length >= 8 && correoSirve && f.lat != null && f.lng != null);
 
+    /** En barrio abierto la carga queda dada de alta al guardarla (api/registro): el agradecimiento no dice «se revisa». */
+    const [aplicada, setAplicada] = useState(false);
+
     async function enviar() {
         setEnviando(true); setErrores([]);
         try {
@@ -171,13 +176,14 @@ export function Formulario({ centro, invitacion, cargas = [], previa, portal }: 
             try { localStorage.removeItem(CLAVE); } catch { /* da igual */ }
             /* Lo mandado queda en pantalla (no se borra): si vuelve a «agregar algo», corrige ESTA carga. */
             if (j?.id) setReemplaza({ id: j.id, cuando: "recién" });
+            setAplicada(!!j?.aplicada);
             setListo(true);
         } catch {
             setErrores(["No se pudo enviar: revisá la señal y probá de nuevo. Lo que escribiste quedó guardado."]);
         } finally { setEnviando(false); }
     }
 
-    if (listo) return <Gracias marca={marca} portal={portal} lote={f.lote} vehiculos={f.vehiculos.filter((v) => v.chapa.trim()).length} servicios={f.servicios.length} ubicado={f.lat != null}
+    if (listo) return <Gracias aplicada={aplicada} marca={marca} portal={portal} lote={f.lote} vehiculos={f.vehiculos.filter((v) => v.chapa.trim()).length} servicios={f.servicios.length} ubicado={f.lat != null}
         alCorregir={reemplaza ? () => { setListo(false); setSentido(-1); setPaso(0); try { window.scrollTo({ top: 0 }); } catch { /* da igual */ } } : undefined} />;
 
     return (
@@ -215,10 +221,10 @@ export function Formulario({ centro, invitacion, cargas = [], previa, portal }: 
                                 <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">Está todo lo que mandaste. Agregá o cambiá sólo lo que falte y volvé a enviar: reemplaza a la anterior, no hace falta cargar todo de nuevo.</p>
                             </div>
                         )}
-                        {paso < 2 && cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente")).length > 0 && <YaCargaron cargas={cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente"))} />}
+                        {paso < 2 && cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente")).length > 0 && <YaCargaron altaDirecta={altaDirecta} cargas={cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente"))} />}
                         {paso === 0 && <PasoCasa f={f} set={set} centro={centro} delPlano={ubicacionLote} loteFijo={!!invitacion} lotes={invitacion?.lotes} alElegirLote={(l) => setF((v) => ({ ...v, lote: l, tenencia: tenenciaDe(l) }))} />}
                         {paso === 1 && <PasoVehiculos f={f} set={set} cargas={cargas} />}
-                        {paso === 2 && <PasoServicios f={f} set={set} />}
+                        {paso === 2 && <PasoServicios f={f} set={set} altaDirecta={altaDirecta} />}
                     </motion.div>
                 </AnimatePresence>
 
@@ -409,11 +415,11 @@ const ENTRADA = "w-full h-12 rounded-[10px] border border-border bg-card px-3.5 
  * pasos, que es donde se decide qué cargar. Sin teléfonos ni correos: con el nombre alcanza para
  * saber quién fue, y el resto no hace falta para no repetir.
  */
-function YaCargaron({ cargas }: { cargas: CargaDelLote[] }) {
+function YaCargaron({ cargas, altaDirecta }: { cargas: CargaDelLote[]; altaDirecta?: boolean }) {
     return (
         <div className="mb-5 rounded-[10px] border border-border bg-card p-3.5">
             <p className="text-[14px] font-bold">Ya cargaron en este lote</p>
-            <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">Cargá sólo lo que falte. Si algo cambió, cargalo igual: la administración revisa todo antes de darlo de alta.</p>
+            <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">Cargá sólo lo que falte. Si algo cambió, cargalo igual{altaDirecta ? ": queda al guardar." : ": la administración revisa todo antes de darlo de alta."}</p>
             <ul className="mt-3 space-y-2.5">
                 {cargas.map((c, i) => (
                     <li key={i} className="border-t border-border pt-2.5 first:border-t-0 first:pt-0">
@@ -743,7 +749,7 @@ function PasoVehiculos({ f, set, cargas = [] }: { f: Form; set: <K extends keyof
     );
 }
 
-function PasoServicios({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void }) {
+function PasoServicios({ f, set, altaDirecta }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; altaDirecta?: boolean }) {
     const cambiar = (i: number, v: Partial<ServicioCargado>) => set("servicios", f.servicios.map((x, j) => (j === i ? { ...x, ...v } : x)));
     const alternarDia = (i: number, d: Dia) => {
         const s = f.servicios[i];
@@ -797,15 +803,17 @@ function PasoServicios({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, 
                     className={cn(ENTRADA, "h-auto py-3 text-[14px] leading-relaxed resize-none")} />
             </Campo>
             <p className="text-[12px] leading-relaxed text-muted-foreground">
-                Lo que cargás lo revisa la administración del barrio antes de darlo de alta. Se usa sólo para el
+                {altaDirecta ? "Lo que cargás queda en el padrón del barrio al guardarlo." : "Lo que cargás lo revisa la administración del barrio antes de darlo de alta."} Se usa sólo para el
                 control de acceso: no se comparte ni se publica.
             </p>
         </Seccion>
     );
 }
 
-function Gracias({ marca, lote, vehiculos, servicios, ubicado, alCorregir, portal }: {
+function Gracias({ marca, lote, vehiculos, servicios, ubicado, alCorregir, portal, aplicada }: {
     marca: { name: string; barrio: string; logoUrl: string };
+    /** Quedó dada de alta en el momento (barrio abierto). */
+    aplicada?: boolean;
     portal?: string | null;
     lote: string; vehiculos: number; servicios: number; ubicado: boolean;
     /** Volver al formulario con lo mandado, para agregar o corregir (reemplaza la carga). */
@@ -844,7 +852,7 @@ function Gracias({ marca, lote, vehiculos, servicios, ubicado, alCorregir, porta
 
                 <h1 className="mt-7 text-[28px] font-bold leading-tight tracking-[-0.02em]">Listo, lote {lote}</h1>
                 <p className="mx-auto mt-3 max-w-[460px] text-[15px] leading-relaxed text-muted-foreground">
-                    Cargaste {dice}. La administración lo revisa y lo da de alta en los próximos días.
+                    Cargaste {dice}. {aplicada ? "Ya quedó en el padrón del barrio." : "La administración lo revisa y lo da de alta en los próximos días."}
                     {alCorregir ? " Si te olvidaste de algo, agregalo acá: lo que ya cargaste queda." : " Si falta algo, volvé a escanear el QR y cargalo de nuevo."}
                 </p>
                 {portal && (

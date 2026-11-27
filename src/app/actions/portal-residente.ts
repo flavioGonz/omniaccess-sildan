@@ -34,18 +34,19 @@ export type MiPortal = {
     servicios: ServicioVisto[];
     /** Su enlace del censo (el del lote, o su copia), y en qué está la carga de su lote. */
     censo: { enlace: string | null; estado: "sin-cargar" | "esperando" | "aprobado"; cuando: string | null };
-    /** Barrio abierto: los proveedores que suma o da de baja el residente quedan al guardar, sin aprobación. */
-    serviciosDirectos: boolean;
+    /** Barrio abierto: lo que suma o saca el residente (matrículas y proveedores) queda al guardar, sin aprobación. */
+    altaDirecta: boolean;
 };
 
 /**
- * ¿Los proveedores del lote se modifican sin aprobación? (26/11, Nico: «no quiero que tenga
+ * ¿Lo que carga el residente queda sin aprobación? Primero los proveedores y, desde el 27/11, también
+ * sus matrículas («no queremos frenar la ingesta de datos»). (26/11, Nico: «no quiero que tenga
  * moderación: si el dueño agrega servicios, deben agregarse al guardar sin ningún tipo de
  * aceptación. Ojo, sólo en barrios abiertos»). En un barrio abierto no hay barrera que abrirle a
  * nadie: el proveedor sirve para que la guardia sepa de qué lote es, y moderarlo sólo demora. En
  * uno cerrado sumar a alguien con entrada es dejar pasar a un tercero: sigue siendo un pedido.
  */
-async function serviciosSinModeracion(): Promise<boolean> {
+async function sinModeracion(): Promise<boolean> {
     try { return (await leerAjustesVisitas()).modo === "ABIERTO"; } catch { return false; }
 }
 
@@ -75,7 +76,7 @@ export async function miPortal(token: string): Promise<{ ok: boolean; datos?: Mi
         lote ? prisma.copiaCenso.findFirst({ where: { userId: u.id, invitacion: { unitId: lote.id } }, select: { id: true } }) : Promise.resolve(null),
         lote ? prisma.solicitudPadron.findMany({ where: { unitId: lote.id, estado: { in: ["pendiente", "aprobada"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { estado: true, createdAt: true } }) : Promise.resolve([]),
         lote ? prisma.servicioLote.findMany({ where: { unitId: lote.id, estado: "ACTIVO" }, orderBy: [{ tipo: "asc" }, { createdAt: "asc" }], select: { id: true, tipo: true, nombre: true, dias: true, desde: true, hasta: true, chapa: true, autorizado: true } }) : Promise.resolve([]),
-        serviciosSinModeracion(),
+        sinModeracion(),
     ]);
     const enlace = inv ? (inv.userId === u.id || !copia ? `/registro/${inv.clave}` : `/registro/${inv.clave}?de=${copia.id}`) : null;
     const chapas: ChapaDelLote[] = [];
@@ -95,7 +96,7 @@ export async function miPortal(token: string): Promise<{ ok: boolean; datos?: Mi
             pedidos: pedidos.map((p) => ({ id: p.id, tipo: p.tipo, chapa: p.chapa, estado: p.estado, motivo: p.motivo, createdAt: p.createdAt.toISOString(), detalle: (p.detalle || {}) as Record<string, string> })),
             servicios: servicios.map((sv) => ({ id: sv.id, tipo: sv.tipo, rotulo: rotuloServicio(sv.tipo), nombre: sv.nombre, cuando: cuandoViene(sv), chapa: sv.chapa, entra: sv.autorizado })),
             censo: { enlace, estado: cargas[0] ? (cargas[0].estado === "aprobada" ? "aprobado" : "esperando") : "sin-cargar", cuando: cargas[0]?.createdAt.toISOString() || null },
-            serviciosDirectos: directos,
+            altaDirecta: directos,
         },
     };
 }
@@ -116,6 +117,23 @@ export async function pedirMatricula(token: string, d: { chapa: string; tipo?: s
     const pedida = await prisma.pedidoResidente.findFirst({ where: { userId: u.id, chapa, estado: "PENDIENTE" }, select: { id: true } });
     if (pedida) return { ok: false, error: `Ya pediste ${chapa}: está esperando que la administración la apruebe.` };
     const corto = (t: unknown, n2 = 60) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, n2);
+    /*
+     * Barrio abierto: queda a su nombre al guardar (27/11, Nico: «cuando cargan los propietarios sus
+     * matrículas deben cargarse sin moderación; no queremos frenar la ingesta de datos»). Como el
+     * censo al aprobarse: la credencial y la ficha del vehículo. La que ya es de otra persona no se
+     * pisa: eso lo mira la administración.
+     */
+    if (await sinModeracion()) {
+        if (ya?.userId) return { ok: false, error: `${chapa} figura a nombre de otra persona: avisale a la administración.` };
+        const nota = [corto(d.tipo, 20) || "PROPIO", corto(d.quien)].filter(Boolean).join(" · ");
+        if (ya) await prisma.credential.updateMany({ where: { type: "PLATE", value: chapa }, data: { userId: u.id, notes: nota } });
+        else await prisma.credential.create({ data: { type: "PLATE", value: chapa, userId: u.id, notes: nota } });
+        const veh = await prisma.vehicle.findUnique({ where: { plate: chapa }, select: { id: true, userId: true } });
+        if (!veh) await prisma.vehicle.create({ data: { plate: chapa, userId: u.id, brand: corto(d.marca) || null, color: corto(d.color, 30) || null, notes: nota } }).catch(() => null);
+        else if (!veh.userId) await prisma.vehicle.update({ where: { id: veh.id }, data: { userId: u.id } }).catch(() => null);
+        if (unitId) await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: u.name, userId: u.id, chapa, detalle: `Sumó ${chapa} desde su portal (barrio abierto: sin aprobación).` }, { quien: u.name, origen: "censo" });
+        return { ok: true };
+    }
     await prisma.pedidoResidente.create({ data: { userId: u.id, unitId, tipo: "MATRICULA_ALTA", chapa, detalle: { tipo: corto(d.tipo, 20) || "PROPIO", marca: corto(d.marca), color: corto(d.color, 30), quien: corto(d.quien) } } });
     if (unitId) await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: u.name, userId: u.id, chapa, detalle: `Pidió sumar ${chapa} desde su portal. Espera que la administración lo apruebe.` }, { quien: u.name, origen: "censo" });
     return { ok: true };
@@ -132,6 +150,13 @@ export async function pedirBajaMatricula(token: string, chapa: string): Promise<
     const pedida = await prisma.pedidoResidente.findFirst({ where: { userId: u.id, chapa: c, estado: "PENDIENTE" }, select: { id: true } });
     if (pedida) return { ok: false, error: `Ya hay un pedido de ${c} esperando a la administración.` };
     const unitId = u.unitId || u.vinculos[0]?.unitId || null;
+    // Barrio abierto: sale al guardar, como cuando se suma.
+    if (await sinModeracion()) {
+        await prisma.credential.deleteMany({ where: { type: "PLATE", value: c, userId: u.id } });
+        await prisma.vehicle.deleteMany({ where: { plate: c, userId: u.id } });
+        if (unitId) await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: u.name, userId: u.id, chapa: c, detalle: `Sacó ${c} desde su portal (barrio abierto: sin aprobación).` }, { quien: u.name, origen: "censo" });
+        return { ok: true };
+    }
     await prisma.pedidoResidente.create({ data: { userId: u.id, unitId, tipo: "MATRICULA_BAJA", chapa: c } });
     if (unitId) await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: u.name, userId: u.id, chapa: c, detalle: `Pidió sacar ${c} desde su portal. Espera que la administración lo apruebe.` }, { quien: u.name, origen: "censo" });
     return { ok: true };
@@ -168,7 +193,7 @@ export async function pedirServicio(token: string, d: { tipo: string; nombre: st
     const dias = ordenarDias(d.dias);
     if (d.entrada && (!chapa || !dias.length)) return { ok: false, error: "Para que entre solo hacen falta la matrícula y los días que viene." };
     // Barrio abierto: queda en el lote al guardar, sin pasar por la administración.
-    if (await serviciosSinModeracion()) {
+    if (await sinModeracion()) {
         const data = { tipo: d.tipo, nombre, telefono: corto(d.telefono, 30) || null, chapa, dias, desde: d.desde || null, hasta: d.hasta || null, notas: corto(d.notas, 200) || null };
         const ya = await prisma.servicioLote.findMany({ where: { unitId, estado: "ACTIVO" }, select: { tipo: true, nombre: true, chapa: true } });
         if (ya.some((x) => mismoServicio(x, data))) return { ok: false, error: "Ese proveedor ya figura en tu lote." };
@@ -191,7 +216,7 @@ export async function pedirBajaServicio(token: string, servicioId: string): Prom
     const lotes = u.vinculos.map((v) => v.unitId);
     const sv = await prisma.servicioLote.findFirst({ where: { id: servicioId, unitId: { in: lotes }, estado: "ACTIVO" } });
     if (!sv) return { ok: false, error: "Ese proveedor ya no figura en tu lote." };
-    if (await serviciosSinModeracion()) {
+    if (await sinModeracion()) {
         await prisma.servicioLote.update({ where: { id: sv.id }, data: { estado: "INACTIVO", autorizado: false, autorizadoPor: null, autorizadoAt: null } });
         await anotarEnLote([sv.unitId], { que: "SERVICIO_BAJA", persona: `${rotuloServicio(sv.tipo)}${sv.nombre ? ` ${sv.nombre}` : ""}`, userId: u.id, chapa: sv.chapa || undefined, detalle: `Dejó de venir: lo dio de baja ${u.name} desde su portal (barrio abierto: sin aprobación).` }, { quien: u.name, origen: "censo" });
         return { ok: true };

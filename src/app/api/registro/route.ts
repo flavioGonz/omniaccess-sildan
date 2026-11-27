@@ -5,20 +5,26 @@ import { normalizarClave } from "@/lib/censo-invitaciones";
 import { anotarEnLote, chapasDelLote } from "@/lib/lote-auditoria";
 import { diferenciaDeCarga, fraseDeCarga } from "@/lib/lote-cambios";
 import { exigirFuncion } from "@/lib/funcion-servidor";
-import { serviciosDelCensoAlLote } from "@/lib/censo-servidor";
+import { aprobarSolicitud } from "@/lib/censo-servidor";
 import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
-import type { ServicioCargado } from "@/lib/registro-padron";
 
 /**
- * En barrio abierto los proveedores que declara el lote quedan al guardar la carga, sin esperar a
- * la administración (27/11, Nico). En barrio cerrado siguen esperando la aprobación de la carga:
- * un proveedor con entrada es dejar pasar a un tercero. Sin lote conocido (carga sin invitación)
- * tampoco: no se crea un lote sin que nadie lo revise.
+ * En barrio abierto la carga del censo se aplica al GUARDARLA, entera: la persona, sus matrículas y
+ * sus proveedores (27/11, Nico: «cuando cargan los propietarios sus matrículas, además de las de
+ * servicios o proveedores, deben cargarse sin moderación todos los datos; no queremos frenar la
+ * ingesta de datos»). Es la misma aprobación que haría la administración (lib/censo-servidor), con
+ * su historial en el lote y sin duplicar lo que ya estaba.
+ *
+ * Sólo con invitación (la clave dice de qué lote es quien carga): una carga anónima no crea lotes
+ * ni personas sin que nadie la mire. Y sólo en barrio abierto: en uno cerrado una matrícula abre la
+ * barrera, y la carga sigue esperando a la administración.
  */
-async function proveedoresAlGuardar(unitId: string | null | undefined, servicios: ServicioCargado[], quien: string): Promise<number> {
-    if (!unitId || !servicios?.length) return 0;
+async function aplicarAlGuardar(id: string, conInvitacion: boolean): Promise<boolean> {
+    if (!conInvitacion) return false;
     const abierto = (await leerAjustesVisitas().catch(() => null))?.modo === "ABIERTO";
-    return abierto ? serviciosDelCensoAlLote(unitId, servicios, quien, true).catch(() => 0) : 0;
+    if (!abierto) return false;
+    const r = await aprobarSolicitud(id, "Censo · barrio abierto, sin aprobación").catch(() => null);
+    return !!r?.ok;
 }
 
 export const dynamic = "force-dynamic";
@@ -117,13 +123,13 @@ export async function POST(req: NextRequest) {
         if (previa) {
             await prisma.solicitudPadron.update({ where: { id: previa.id }, data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios, unitId: unitId ?? previa.unitId, ...(copia ? { paraUserId: copia.userId } : {}) } });
             if (copia) await prisma.copiaCenso.update({ where: { id: copia.id }, data: { usadoAt: new Date() } }).catch(() => { });
-            await proveedoresAlGuardar(unitId ?? previa.unitId, datos.servicios, [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido);
             if (unitId) {
                 const quien = [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido;
                 const d = diferenciaDeCarga(await chapasDelLote(unitId), datos.vehiculos.map((v) => v.chapa));
-                await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: quien, detalle: `Corrigió su carga. ${fraseDeCarga(d)} Espera que la administración la apruebe.` }, { quien, origen: "censo" });
+                await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: quien, detalle: `Corrigió su carga. ${fraseDeCarga(d)}` }, { quien, origen: "censo" });
             }
-            return NextResponse.json({ ok: true, id: previa.id, corregida: true });
+            const aplicada = await aplicarAlGuardar(previa.id, !!invitacion);
+            return NextResponse.json({ ok: true, id: previa.id, corregida: true, aplicada });
         }
         // El botón tocado dos veces no es una familia que cargó dos veces.
         const igual = await prisma.solicitudPadron.findFirst({
@@ -132,8 +138,8 @@ export async function POST(req: NextRequest) {
         });
         if (igual) {
             await prisma.solicitudPadron.update({ where: { id: igual.id }, data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios } });
-            await proveedoresAlGuardar(unitId, datos.servicios, [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido);
-            return NextResponse.json({ ok: true, id: igual.id, repetido: true });
+            const aplicada = await aplicarAlGuardar(igual.id, !!invitacion);
+            return NextResponse.json({ ok: true, id: igual.id, repetido: true, aplicada });
         }
         const fila = await prisma.solicitudPadron.create({
             data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios, clave: invitacion?.clave ?? null, unitId, paraUserId: copia?.userId ?? null },
@@ -144,15 +150,15 @@ export async function POST(req: NextRequest) {
            muestra quién cargó, persona por persona. */
         if (copia) await prisma.copiaCenso.update({ where: { id: copia.id }, data: { usadoAt: new Date() } }).catch(() => { });
         else if (invitacion) await prisma.invitacionCenso.update({ where: { id: invitacion.id }, data: { usadoAt: new Date() } }).catch(() => { });
-        await proveedoresAlGuardar(unitId, datos.servicios, [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido);
         /* El historial del lote: qué declaró, contra lo que el lote ya tenía. Es el momento en que
            un residente «cambia sus matrículas» — todavía sin aprobar, pero ya dicho. */
         if (unitId) {
             const quien = [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido;
             const d = diferenciaDeCarga(await chapasDelLote(unitId), datos.vehiculos.map((v) => v.chapa));
-            await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: quien, detalle: `${fraseDeCarga(d)} Espera que la administración la apruebe.` }, { quien, origen: "censo" });
+            await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: quien, detalle: fraseDeCarga(d) }, { quien, origen: "censo" });
         }
-        return NextResponse.json({ ok: true, id: fila.id });
+        const aplicada = await aplicarAlGuardar(fila.id, !!invitacion);
+        return NextResponse.json({ ok: true, id: fila.id, aplicada });
     } catch {
         return NextResponse.json({ error: "No se pudo guardar. Probá de nuevo en un momento." }, { status: 503 });
     }

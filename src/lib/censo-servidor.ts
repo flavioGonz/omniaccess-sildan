@@ -50,9 +50,8 @@ export function lineaDeServicio(s: ServicioCargado): string {
  * Los servicios que declaró una carga del censo, al lote: los que el lote no tenía (mismo tipo y
  * nombre, o misma chapa, no se repite). Devuelve cuántos sumó.
  *
- * En barrio abierto se llama al GUARDAR la carga (27/11, Nico: «el usuario de cada lote agrega al
- * jardinero, etc., y eso no debe ser moderado: debe agregarse sin necesitar aprobación»), no al
- * aprobarla. La persona y sus matrículas siguen esperando a la administración; el proveedor no.
+ * En barrio abierto la carga entera se aplica al guardarla (api/registro: aplicarAlGuardar), así
+ * que esto corre en ese momento; en barrio cerrado, cuando la administración aprueba.
  */
 export async function serviciosDelCensoAlLote(unitId: string, servicios: ServicioCargado[], quien: string, alGuardar: boolean): Promise<number> {
     const ya = await prisma.servicioLote.findMany({ where: { unitId }, select: { tipo: true, nombre: true, chapa: true } });

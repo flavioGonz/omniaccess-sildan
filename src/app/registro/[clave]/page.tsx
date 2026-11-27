@@ -9,6 +9,7 @@ import { getOrCreatePortalToken } from "@/app/actions/invitations";
 import { ZONA } from "@/lib/fechas";
 import { TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
 import { ClaveNoSirve } from "../ClaveNoSirve";
+import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
 
 export const dynamic = "force-dynamic";
 
@@ -83,5 +84,7 @@ export default async function RegistroConClave({ params, searchParams }: { param
        del censo recibe también el de su portal, para invitar y ver sus matrículas. */
     const deQuien = yo?.userId || (!copia ? (await prisma.invitacionCenso.findUnique({ where: { id: inv.id }, select: { userId: true } }))?.userId : null) || null;
     const portal = deQuien ? await getOrCreatePortalToken(deQuien).then((r) => (r.ok && r.token ? `/residente/${r.token}` : null)).catch(() => null) : null;
-    return <Formulario centro={center} cargas={cargas} previa={previa} portal={portal} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id }} />;
+    // Barrio abierto: lo que se carga queda dado de alta al guardar (api/registro: aplicarAlGuardar).
+    const altaDirecta = (await leerAjustesVisitas().catch(() => null))?.modo === "ABIERTO";
+    return <Formulario centro={center} cargas={cargas} previa={previa} portal={portal} altaDirecta={altaDirecta} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id }} />;
 }
