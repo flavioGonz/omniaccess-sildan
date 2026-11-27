@@ -5,6 +5,21 @@ import { normalizarClave } from "@/lib/censo-invitaciones";
 import { anotarEnLote, chapasDelLote } from "@/lib/lote-auditoria";
 import { diferenciaDeCarga, fraseDeCarga } from "@/lib/lote-cambios";
 import { exigirFuncion } from "@/lib/funcion-servidor";
+import { serviciosDelCensoAlLote } from "@/lib/censo-servidor";
+import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
+import type { ServicioCargado } from "@/lib/registro-padron";
+
+/**
+ * En barrio abierto los proveedores que declara el lote quedan al guardar la carga, sin esperar a
+ * la administración (27/11, Nico). En barrio cerrado siguen esperando la aprobación de la carga:
+ * un proveedor con entrada es dejar pasar a un tercero. Sin lote conocido (carga sin invitación)
+ * tampoco: no se crea un lote sin que nadie lo revise.
+ */
+async function proveedoresAlGuardar(unitId: string | null | undefined, servicios: ServicioCargado[], quien: string): Promise<number> {
+    if (!unitId || !servicios?.length) return 0;
+    const abierto = (await leerAjustesVisitas().catch(() => null))?.modo === "ABIERTO";
+    return abierto ? serviciosDelCensoAlLote(unitId, servicios, quien, true).catch(() => 0) : 0;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +117,7 @@ export async function POST(req: NextRequest) {
         if (previa) {
             await prisma.solicitudPadron.update({ where: { id: previa.id }, data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios, unitId: unitId ?? previa.unitId, ...(copia ? { paraUserId: copia.userId } : {}) } });
             if (copia) await prisma.copiaCenso.update({ where: { id: copia.id }, data: { usadoAt: new Date() } }).catch(() => { });
+            await proveedoresAlGuardar(unitId ?? previa.unitId, datos.servicios, [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido);
             if (unitId) {
                 const quien = [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido;
                 const d = diferenciaDeCarga(await chapasDelLote(unitId), datos.vehiculos.map((v) => v.chapa));
@@ -116,6 +132,7 @@ export async function POST(req: NextRequest) {
         });
         if (igual) {
             await prisma.solicitudPadron.update({ where: { id: igual.id }, data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios } });
+            await proveedoresAlGuardar(unitId, datos.servicios, [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido);
             return NextResponse.json({ ok: true, id: igual.id, repetido: true });
         }
         const fila = await prisma.solicitudPadron.create({
@@ -127,6 +144,7 @@ export async function POST(req: NextRequest) {
            muestra quién cargó, persona por persona. */
         if (copia) await prisma.copiaCenso.update({ where: { id: copia.id }, data: { usadoAt: new Date() } }).catch(() => { });
         else if (invitacion) await prisma.invitacionCenso.update({ where: { id: invitacion.id }, data: { usadoAt: new Date() } }).catch(() => { });
+        await proveedoresAlGuardar(unitId, datos.servicios, [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido);
         /* El historial del lote: qué declaró, contra lo que el lote ya tenía. Es el momento en que
            un residente «cambia sus matrículas» — todavía sin aprobar, pero ya dicho. */
         if (unitId) {

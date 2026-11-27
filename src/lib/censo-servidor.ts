@@ -46,6 +46,26 @@ export function lineaDeServicio(s: ServicioCargado): string {
     return partes.join(" · ");
 }
 
+/**
+ * Los servicios que declaró una carga del censo, al lote: los que el lote no tenía (mismo tipo y
+ * nombre, o misma chapa, no se repite). Devuelve cuántos sumó.
+ *
+ * En barrio abierto se llama al GUARDAR la carga (27/11, Nico: «el usuario de cada lote agrega al
+ * jardinero, etc., y eso no debe ser moderado: debe agregarse sin necesitar aprobación»), no al
+ * aprobarla. La persona y sus matrículas siguen esperando a la administración; el proveedor no.
+ */
+export async function serviciosDelCensoAlLote(unitId: string, servicios: ServicioCargado[], quien: string, alGuardar: boolean): Promise<number> {
+    const ya = await prisma.servicioLote.findMany({ where: { unitId }, select: { tipo: true, nombre: true, chapa: true } });
+    let nuevos = 0;
+    for (const sv of servicios.map(delCenso)) {
+        if (ya.some((x) => mismoServicio(x, sv))) continue;
+        await prisma.servicioLote.create({ data: { ...sv, unitId, origen: "censo", creadoPor: quien } });
+        await anotarEnLote([unitId], { que: "SERVICIO_ALTA", persona: `${rotuloServicio(sv.tipo)}${sv.nombre ? ` ${sv.nombre}` : ""}`, chapa: sv.chapa || undefined, detalle: `Lo declaró ${quien} en el censo${alGuardar ? " (barrio abierto: sin aprobación)" : ""}.${cuandoViene(sv) ? ` ${cuandoViene(sv)}.` : ""}` }, { quien, origen: "censo" });
+        ya.push(sv); nuevos++;
+    }
+    return nuevos;
+}
+
 export async function aprobarSolicitud(id: string, quien: string): Promise<ResultadoAprobar> {
     const s = await prisma.solicitudPadron.findUnique({ where: { id } });
     if (!s) return { ok: false, unidad: "", persona: "", matriculas: 0, avisos: [], error: "No existe esa carga." };
@@ -137,16 +157,10 @@ export async function aprobarSolicitud(id: string, quien: string): Promise<Resul
 
     /* Los servicios pasan a ser del LOTE (26/11, Nico: «cada lote tiene que tener sus propios
        servicios, para identificar a proveedores»): quedan en su lista, identificados, sin abrir el
-       portón. El que el lote ya tenía (mismo tipo y nombre, o misma chapa) no se repite. */
+       portón. El que el lote ya tenía (mismo tipo y nombre, o misma chapa) no se repite — así, en
+       barrio abierto, los que ya quedaron al cargar el censo no se duplican al aprobar. */
     if (servicios.length) {
-        const ya = await prisma.servicioLote.findMany({ where: { unitId: unidad.id }, select: { tipo: true, nombre: true, chapa: true } });
-        let nuevos = 0;
-        for (const sv of servicios.map(delCenso)) {
-            if (ya.some((x) => mismoServicio(x, sv))) continue;
-            await prisma.servicioLote.create({ data: { ...sv, unitId: unidad.id, origen: "censo", creadoPor: persona.name } });
-            await anotarEnLote([unidad.id], { que: "SERVICIO_ALTA", persona: `${rotuloServicio(sv.tipo)}${sv.nombre ? ` ${sv.nombre}` : ""}`, chapa: sv.chapa || undefined, detalle: `Lo declaró ${persona.name} en el censo.${cuandoViene(sv) ? ` ${cuandoViene(sv)}.` : ""}` }, { quien: persona.name, origen: "censo" });
-            ya.push(sv); nuevos++;
-        }
+        const nuevos = await serviciosDelCensoAlLote(unidad.id, servicios, persona.name, false);
         if (nuevos) avisos.push(`${nuevos} ${nuevos === 1 ? "servicio quedó" : "servicios quedaron"} en el lote.`);
     }
 
