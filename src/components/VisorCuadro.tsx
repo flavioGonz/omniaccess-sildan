@@ -637,6 +637,24 @@ export function VisorCuadro({
     const vig = ficha?.vigilancia;
     const IconoVig = vig?.categoria ? (ICONO_VIGILANCIA[vig.categoria] || ShieldAlert) : null;
     const conocida = !!(ficha?.dueno || ficha?.marca);
+    /*
+     * Quién es, sobre la silueta del vehículo (27/11): en lugar de «hatchback 95 %», el residente y
+     * su lote, el proveedor, la visita o la lista negra; y si no se lo conoce, que se diga.
+     */
+    const quienCapa = cargandoFicha ? null
+        : vig?.categoria === "BLACKLISTED" ? { texto: vig.etiqueta || "Lista negra", color: "#f87171" }
+            : dueno?.nombre ? { texto: [dueno.nombre, dueno.unidad].filter(Boolean).join(" · "), color: "#6ee7b7" }
+                : ficha?.proveedor ? { texto: ["Proveedor", ficha.proveedor.tipo, ficha.proveedor.lote].filter(Boolean).join(" · "), color: "#7dd3fc" }
+                    : ficha?.visita ? { texto: ["Visita", ficha.visita.lote].filter(Boolean).join(" · "), color: "#fcd34d" }
+                        : { texto: "No está en el padrón", color: "rgba(248,250,252,0.7)" };
+    /*
+     * La chapa dibujada con la forma de siempre (la matrícula Mercosur bajo el recuadro): la releída
+     * por OmniVision, o si no, la del lector (PlateRect del ANPR o el recuadro de omni-lpr). Antes la
+     * del lector iba aparte, como un segundo recuadro con otro rótulo, y la chapa salía dos veces.
+     */
+    const chapaCapa = datos?.relectura?.plate && datos.relectura.caja ? { plate: datos.relectura.plate, caja: datos.relectura.caja }
+        : recuadro && fila.plate ? { plate: fila.plate, caja: [recuadro.x, recuadro.y, recuadro.x + recuadro.w, recuadro.y + recuadro.h] as [number, number, number, number] }
+            : null;
 
     /**
      * Marca, modelo y color: primero lo del padrón, después lo que vio la cámara.
@@ -965,7 +983,7 @@ export function VisorCuadro({
 
                         {/* La retícula marca dónde estaba la chapa EN ESA FOTO. Sobre el vivo
                             sería una marca sobre una escena que ya cambió, así que se apaga. */}
-                        {modo === "foto" && !enPaso && !limpio && verContorno && !enVideo && (
+                        {modo === "foto" && !enPaso && !limpio && verContorno && !enVideo && !(verSiluetas && vision) && (
                             <ContornoDeteccion bbox={fila.bbox} plate={fila.plate} escala={escala} />
                         )}
 
@@ -973,7 +991,7 @@ export function VisorCuadro({
                             foto (misma proporción), así que el ajuste «contain» cae justo. */}
                         {modo === "foto" && !enPaso && !limpio && verSiluetas && vision && !enVideo && (
                             <CapaAnalisis analisis={visionConAlerta || vision} atributos className="z-[6]" rotuloAlerta={!conCapsula}
-                                chapa={datos?.relectura?.plate && datos.relectura.caja ? { plate: datos.relectura.plate, caja: datos.relectura.caja } : null}
+                                chapa={chapaCapa} quien={quienCapa}
                                 /* En el playback la insignia de categoría igual se ve: la matrícula la
                                    trae el evento aunque no se sepa dónde cae la chapa en la foto. */
                                 matricula={fila.plate} />

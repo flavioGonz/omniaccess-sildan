@@ -168,7 +168,7 @@ function techoEn(polis: Pt[][], x: number): number | null {
 const pts = (p: Pt[], w: number, h: number) => p.map(([x, y]) => `${(x * w).toFixed(1)},${(y * h).toFixed(1)}`).join(" ");
 const ptsPx = (p: Pt[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
-export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, matricula, interactiva = false, opciones, rotuloAlerta = true, className }: {
+export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, matricula, quien, interactiva = false, opciones, rotuloAlerta = true, className }: {
     analisis: Analisis;
     /** La chapa que leyó OmniVision, con su caja en la foto (relectura). */
     chapa?: ChapaEnFoto | null;
@@ -179,6 +179,12 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
      * necesita su caja y sin ella no se inventa.
      */
     matricula?: string | null;
+    /**
+     * Quién es el vehículo de la chapa, para el renglón de abajo de su rótulo en lugar de color y
+     * carrocería (27/11, Nico: «ahí poner los datos del usuario identificado y su lote, igual si no lo
+     * reconocés»). Se apoya en el vehículo que tiene la chapa; sin chapa ubicada, en el más grande.
+     */
+    quien?: { texto: string; color?: string } | null;
     geom?: GeomNorm | null;
     ajuste?: "contain" | "cover";
     /** El rótulo «Persona 92 %» sobre cada objeto. En una miniatura sobra. */
@@ -228,6 +234,19 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     }, [objetos, interactiva]);
     // Siempre en el mismo orden (el más viejo primero): mover un elemento de lugar en el documento le corta el deslizamiento.
     const orden = useMemo(() => objetos.map((_, i) => i).sort((a, b) => ids[a] - ids[b]), [objetos, ids]);
+    /** El vehículo de la chapa (el que contiene su centro; si no, el más grande): ahí va `quien`. */
+    const iQuien = useMemo(() => {
+        if (!quien) return -1;
+        const autos = objetos.map((o, i) => ({ o, i })).filter(({ o }) => o.grupo === "vehiculo" && !o.oculto);
+        if (!autos.length) return -1;
+        const area = (c: Caja) => (c[2] - c[0]) * (c[3] - c[1]);
+        if (chapa?.caja) {
+            const cx = (chapa.caja[0] + chapa.caja[2]) / 2, cy = (chapa.caja[1] + chapa.caja[3]) / 2;
+            const dentro = autos.filter(({ o }) => cx >= o.caja[0] && cx <= o.caja[2] && cy >= o.caja[1] && cy <= o.caja[3]);
+            if (dentro.length) return dentro.sort((a, b) => area(b.o.caja) - area(a.o.caja))[0].i;
+        }
+        return autos.sort((a, b) => area(b.o.caja) - area(a.o.caja))[0].i;
+    }, [quien, objetos, chapa]);
     const pistaDe = (id: number) => (interactiva ? pistas.current.find((q) => q.id === id) || null : null);
 
     /*
@@ -529,8 +548,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const sel = i === iSel;
                 const reloj = sel && o.quietoDesde ? o.quietoDesde : null;
                 const menu = sel && opciones ? opciones(o) : [];
-                const meta = extra.map((x) => x.toUpperCase()).join(" · ");
-                const conf = `${Math.round(o.confianza * 100)} %`;
+                const deQuien = i === iQuien && !!quien;
+                const meta = deQuien ? quien!.texto.toUpperCase() : extra.map((x) => x.toUpperCase()).join(" · ");
+                const conf = deQuien ? "" : `${Math.round(o.confianza * 100)} %`;
                 const f = fuente * 1.05, fm = fuente * 0.74, icono = f * 1.15, hueco = f * 0.4;
                 // Anchos estimados con margen (la letra de reemplazo, si falta Outfit, es más ancha).
                 const anchoTitulo = icono + hueco + titulo.length * f * 0.56;
@@ -670,8 +690,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                                 : <Icono x={ix} y={ey - f * 0.42 - icono} width={icono} height={icono} color={c} strokeWidth={2.25} absoluteStrokeWidth={false} />}
                             <text x={tituloX} y={ey - f * 0.5} textAnchor={anchor} fontSize={f} fontWeight={700} fill="#ffffff" letterSpacing={-0.01 * f}>{titulo}</text>
                             <text x={tx} y={ey + fm * 1.45} textAnchor={anchor} fontSize={fm} fontWeight={700} letterSpacing={0.12 * fm} style={{ fontVariantNumeric: "tabular-nums" }}>
-                                {meta && <tspan fill="rgba(248,250,252,0.86)">{meta}</tspan>}
-                                <tspan fill={c} dx={meta ? fm * 1.1 : 0}>{conf}</tspan>
+                                {meta && <tspan fill={deQuien ? quien!.color || "#ffffff" : "rgba(248,250,252,0.86)"}>{meta}</tspan>}
+                                {conf && <tspan fill={c} dx={meta ? fm * 1.1 : 0}>{conf}</tspan>}
                             </text>
                         </g>
                         {/* El reloj: un ícono y el tiempo con las cifras rodando al segundo. Es HTML dentro del
