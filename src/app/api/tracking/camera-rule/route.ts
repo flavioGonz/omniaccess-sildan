@@ -225,9 +225,16 @@ export async function POST(req: NextRequest) {
     const linea = body.linea ?? (d.trackLine ? JSON.parse(d.trackLine) : null);
     let roi: any = null;
     try { roi = d.trackRoi ? JSON.parse(d.trackRoi) : null; } catch { }
-
-    if (modo === "zona" && !roi) {
-        return NextResponse.json({ error: "Falta la zona de interés: dibujala en el calibrador antes de activar el disparo por zona." }, { status: 400 });
+    /*
+     * La zona que se le escribe a la cámara es el RECORTE del calibrador (27/11, Nico: «¿por qué a una
+     * LPR de OmniVision no puedo agregarle zonas?»: pedía «la zona de interés» guardada y nada en
+     * pantalla decía que era el recorte). Se toma el que está en pantalla, aunque no se haya guardado,
+     * y sin recorte, el cuadro entero.
+     */
+    const roiPedido = body.roi && typeof body.roi === "object" && [body.roi.x, body.roi.y, body.roi.w, body.roi.h].every((n: unknown) => typeof n === "number" && isFinite(n as number)) ? body.roi : null;
+    if (modo === "zona") {
+        roi = roiPedido || roi || { x: 0, y: 0, w: 1, h: 1 };
+        if (roiPedido) await prisma.device.update({ where: { id: d.id }, data: { trackRoi: JSON.stringify(roiPedido) } }).catch(() => null);
     }
     if (modo === "linea" && !linea) {
         return NextResponse.json({ error: "Falta la línea de pasada: dibujala sobre el cuadro antes de activar el disparo por cruce." }, { status: 400 });

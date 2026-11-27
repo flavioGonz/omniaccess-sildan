@@ -47,7 +47,7 @@ const flechaDe = (ps: Pt[]) => { const c = centroide(ps); const ys = ps.map((p) 
 const MODOS: { id: ModoDisparo; t: string; d: string; icono: typeof Minus }[] = [
     { id: "omnivision", t: "Cuando OmniVision ve un vehículo", d: "Arranca cuando OmniVision abre la pista de un auto, moto o camión. No se despierta con sombras ni ramas y los estacionados no disparan.", icono: Sparkles },
     { id: "linea", t: "Al cruzar la línea de la cámara", d: "La cámara avisa en el instante del cruce: la lectura queda centrada en el paso. Necesita analítica en la cámara.", icono: Minus },
-    { id: "zona", t: "Al entrar en la zona de la cámara", d: "La cámara avisa mientras haya un vehículo en la zona. Un auto quieto vuelve a disparar. Necesita analítica en la cámara.", icono: Square },
+    { id: "zona", t: "Al entrar en la zona de la cámara", d: "La cámara avisa mientras haya un vehículo dentro del Recorte (el recuadro azul; sin recorte, todo el cuadro). Un auto quieto vuelve a disparar. Necesita analítica en la cámara.", icono: Square },
     { id: "escena", t: "Por cambio de imagen", d: "Lo decide el servidor mirando si la imagen cambió. Anda con cualquier cámara, pero se despierta con sombras: pide un buen recorte.", icono: Gauge },
 ];
 
@@ -144,7 +144,7 @@ export function useLecturaOmni(deviceId: string, activo: boolean, equipo?: { dir
     const cambiarModo = async (m: ModoDisparo) => {
         if (!estado) return;
         setAplicandoModo(true);
-        try { await axios.post("/api/tracking/camera-rule", { deviceId, modo: m, linea: m === "linea" ? estado.linea : undefined }); setModo(m); toast.success({ title: "Disparo cambiado", description: MODOS.find((x) => x.id === m)?.t }); }
+        try { await axios.post("/api/tracking/camera-rule", { deviceId, modo: m, linea: m === "linea" ? estado.linea : undefined, roi: m === "zona" ? estado.roi : undefined }); setModo(m); toast.success({ title: "Disparo cambiado", description: MODOS.find((x) => x.id === m)?.t }); }
         catch (e) { toast.error({ title: (e as { response?: { data?: { error?: string } } })?.response?.data?.error || "La cámara no aceptó el cambio" }); }
         finally { setAplicandoModo(false); }
     };
@@ -162,7 +162,7 @@ export function useLecturaOmni(deviceId: string, activo: boolean, equipo?: { dir
         setGuardando(true);
         try {
             await axios.put("/api/tracking/calibration", { deviceId, escena: estado.escena, confianza: estado.confianza, fps: estado.fps, roi: estado.roi, linea: estado.linea });
-            if (modo === "zona" || modo === "linea") await axios.post("/api/tracking/camera-rule", { deviceId, modo, linea: modo === "linea" ? estado.linea : undefined });
+            if (modo === "zona" || modo === "linea") await axios.post("/api/tracking/camera-rule", { deviceId, modo, linea: modo === "linea" ? estado.linea : undefined, roi: modo === "zona" ? estado.roi : undefined });
             // La línea que la cámara ya tenía: borrada acá → se apaga en la cámara; movida → se mueve.
             if (lineaCamaraOriginal && modo !== "linea") {
                 if (!estado.linea) await axios.post("/api/tracking/camera-rule", { deviceId, lineaCamara: "quitar" });

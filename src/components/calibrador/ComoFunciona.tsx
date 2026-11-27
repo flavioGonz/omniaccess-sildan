@@ -48,7 +48,7 @@ export function ComoFunciona({ r, deviceId, activo }: { r: ResumenLectura; devic
         : r.modo === "linea"
             ? `La cámara vigila su línea de disparo${r.lineaCamara === "left-right" ? " (sólo de izquierda a derecha)" : r.lineaCamara === "right-left" ? " (sólo de derecha a izquierda)" : ""}. Cuando un vehículo la cruza, la cámara lo avisa por su flujo de eventos —OmniAccess lo escucha directo— y en ese instante se pide la lectura.`
             : r.modo === "zona"
-                ? "La cámara vigila su zona. Mientras haya un vehículo adentro lo va avisando por su flujo de eventos, y con cada aviso se pide una lectura: un auto quieto vuelve a disparar (el rebote lo frena)."
+                ? "La cámara vigila su zona —el Recorte azul; sin recorte, todo el cuadro—. Mientras haya un vehículo adentro lo va avisando por su flujo de eventos, y con cada aviso se pide una lectura: un auto quieto vuelve a disparar (el rebote lo frena)."
                 : "OmniAccess compara los cuadros del video y, cuando la imagen cambia más que la sensibilidad, pide la lectura. Anda con cualquier cámara, pero sombras y ramas también disparan: conviene un buen recorte.";
 
     const rafaga = `OmniAccess toma del video (no de la cámara) los cuadros de ${ANTES_S.toString().replace(".", ",")} s antes a ${DESPUES_S.toString().replace(".", ",")} s después del disparo, hasta ${CUADROS_MAX} a ${r.fps} por segundo${r.recorte ? ", recortados al recuadro azul" : ""}, y se los pasa de a uno al lector de matrículas en la GPU. La chapa se vota entre los cuadros: una vista en varios vale más que una vista en uno.`;
