@@ -326,7 +326,12 @@ function TipoDeCamara({ tipo, original, caps, leyendo, modoLpr, modoIntr, onCamb
     tipo: "LPR_CAMERA" | "CAMERA"; original: "LPR_CAMERA" | "CAMERA"; caps: Capacidades | null; leyendo: boolean;
     modoLpr: ModoLpr; modoIntr: ModoIntrusion; onCambiar: (t: "LPR_CAMERA" | "CAMERA") => void;
 }) {
-    const sug = caps && caps.fuente !== "nada" ? caps.sugerido : null;
+    /* Una cámara sin ANPR cargada como LPR no es «de intrusión»: la lee OmniAccess (omni-lpr u
+       OmniVision). La .86 «LPR Interior» decía «Cámara de intrusión · sugerida» sólo por tener
+       cruce de línea y zona (27/11, Nico: «¿está catalogada como intrusión también? Está mal»).
+       Sugerir LPR a una de intrusión con ANPR sí sirve; al revés, lo decide quien la dio de alta. */
+    const crudo = caps && caps.fuente !== "nada" ? caps.sugerido : null;
+    const sug = crudo && !(tipo === "LPR_CAMERA" && crudo.tipo === "CAMERA") ? crudo : null;
     const ROT = { LPR_CAMERA: "Cámara LPR", CAMERA: "Cámara de intrusión" } as const;
     const sinAnalitica = caps?.fuente === "camara" && caps.cruceLinea === false && caps.zona === false;
     return (

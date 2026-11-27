@@ -7,6 +7,7 @@ import { limpiarChapa } from "@/lib/lote-cambios";
 import { normalizarChapa } from "@/lib/formato-chapa";
 import { cuandoViene, mismoServicio, ordenarDias, rotuloServicio, TIPOS_SERVICIO } from "@/lib/servicios-lote";
 import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
+import { TIPOS_VEHICULO } from "@/lib/registro-padron";
 
 /**
  * El portal del residente, todo junto (26/11). Nico: «que el registro del lote y las invitaciones QR
@@ -20,7 +21,8 @@ import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
  */
 
 export type PersonaDelLote = { id: string; nombre: string; vinculo: string; yo: boolean; telefono: string | null };
-export type ChapaDelLote = { chapa: string; de: string; mia: boolean; marca: string | null; color: string | null };
+/** `uso`: para qué es, cuando no es de la casa («Proveedor: jardinero»), de la nota con que se cargó o del proveedor del lote que viene en ella. */
+export type ChapaDelLote = { chapa: string; de: string; mia: boolean; marca: string | null; color: string | null; uso: string | null; tipo: string; quien: string };
 /** Un servicio del lote, como lo ve el residente: sin documento ni teléfono del proveedor (eso es de la administración). */
 export type ServicioVisto = { id: string; tipo: string; rotulo: string; nombre: string; cuando: string; chapa: string | null; entra: boolean; telefono: string | null; dias: string[]; desde: string | null; hasta: string | null; notas: string | null };
 export type PedidoVisto = { id: string; tipo: string; chapa: string | null; estado: string; motivo: string | null; createdAt: string; detalle: Record<string, string> };
@@ -71,7 +73,7 @@ export async function miPortal(token: string): Promise<{ ok: boolean; datos?: Mi
     const [gente, pedidos, inv, copia, cargas, servicios, directos] = await Promise.all([
         lote ? prisma.userUnidad.findMany({
             where: { unitId: lote.id }, orderBy: { createdAt: "asc" },
-            select: { vinculo: true, user: { select: { id: true, name: true, phone: true, vehicles: { select: { plate: true, brand: true, color: true } }, credentials: { where: { type: "PLATE" }, select: { value: true } } } } },
+            select: { vinculo: true, user: { select: { id: true, name: true, phone: true, vehicles: { select: { plate: true, brand: true, color: true, notes: true } }, credentials: { where: { type: "PLATE" }, select: { value: true, notes: true } } } } },
         }) : Promise.resolve([]),
         prisma.pedidoResidente.findMany({ where: { userId: u.id }, orderBy: { createdAt: "desc" }, take: 30 }),
         lote ? prisma.invitacionCenso.findFirst({ where: { sitio: "", unitId: lote.id }, select: { id: true, clave: true, userId: true } }) : Promise.resolve(null),
@@ -85,7 +87,11 @@ export async function miPortal(token: string): Promise<{ ok: boolean; datos?: Mi
     for (const g of gente) {
         for (const c of new Set([...g.user.vehicles.map((v) => v.plate), ...g.user.credentials.map((x) => x.value)].map(limpiarChapa).filter(Boolean))) {
             const v = g.user.vehicles.find((x) => limpiarChapa(x.plate) === c);
-            if (!chapas.some((x) => x.chapa === c)) chapas.push({ chapa: c, de: g.user.name, mia: g.user.id === u.id, marca: v?.brand || null, color: v?.color || null });
+            const cr = g.user.credentials.find((x) => limpiarChapa(x.value) === c);
+            const sv = servicios.find((x) => x.chapa && limpiarChapa(x.chapa) === c);
+            const n = leerNota(cr?.notes || v?.notes);
+            const uso = sv ? `Proveedor: ${[rotuloServicio(sv.tipo).toLowerCase(), sv.nombre].filter(Boolean).join(" · ")}` : n.tipo === "PROPIO" ? null : `${rotuloVehiculo(n.tipo)}${n.quien ? `: ${n.quien}` : ""}`;
+            if (!chapas.some((x) => x.chapa === c)) chapas.push({ chapa: c, de: g.user.name, mia: g.user.id === u.id, marca: v?.brand || null, color: v?.color || null, uso, tipo: sv ? "PROVEEDOR" : n.tipo, quien: n.quien });
         }
     }
     return {
@@ -129,7 +135,7 @@ export async function pedirMatricula(token: string, d: { chapa: string; tipo?: s
      */
     if (await sinModeracion()) {
         if (ya?.userId) return { ok: false, error: `${chapa} figura a nombre de otra persona: avisale a la administración.` };
-        const nota = [corto(d.tipo, 20) || "PROPIO", corto(d.quien)].filter(Boolean).join(" · ");
+        const nota = notaVehiculo(String(d.tipo || "PROPIO"), corto(d.quien));
         if (ya) await prisma.credential.updateMany({ where: { type: "PLATE", value: chapa }, data: { userId: u.id, notes: nota } });
         else await prisma.credential.create({ data: { type: "PLATE", value: chapa, userId: u.id, notes: nota } });
         const veh = await prisma.vehicle.findUnique({ where: { plate: chapa }, select: { id: true, userId: true } });
@@ -303,17 +309,20 @@ async function chapaTocable(c: NonNullable<Awaited<ReturnType<typeof contexto>>>
 }
 
 /** La marca y el color de un vehículo del lote. */
-export async function editarVehiculo(token: string, chapa: string, d: { marca?: string; color?: string }): Promise<Resultado> {
+export async function editarVehiculo(token: string, chapa: string, d: { marca?: string; color?: string; tipo?: string; quien?: string }): Promise<Resultado> {
     const c = await contexto(token);
     if (!c) return { ok: false, error: SIN_ENLACE };
     if (!(await sinModeracion())) return { ok: false, error: SOLO_ABIERTO };
     const t = await chapaTocable(c, chapa);
     if (!t.puede || !t.de) return { ok: false, error: t.error || "No se pudo." };
-    const data = { brand: corto(d.marca, 40) || null, color: corto(d.color, 30) || null };
+    const tipo = TIPOS_VEHICULO.some((x) => x.id === d.tipo) ? String(d.tipo) : "PROPIO";
+    const notes = notaVehiculo(tipo, tipo === "PROPIO" ? "" : corto(d.quien));
+    const data = { brand: corto(d.marca, 40) || null, color: corto(d.color, 30) || null, notes };
     const veh = await prisma.vehicle.findUnique({ where: { plate: t.p }, select: { id: true } });
     if (veh) await prisma.vehicle.update({ where: { id: veh.id }, data });
-    else await prisma.vehicle.create({ data: { plate: t.p, userId: t.de, ...data, notes: "Cargada desde el portal" } });
-    if (c.unitId) await anotarEnLote([c.unitId], { que: "DATO_CAMBIADO", persona: c.u.name, userId: c.u.id, chapa: t.p, detalle: `Corrigió el vehículo ${t.p} desde el portal (${[data.brand, data.color].filter(Boolean).join(" · ") || "sin marca ni color"}).` }, { quien: c.u.name, origen: "censo" });
+    else await prisma.vehicle.create({ data: { plate: t.p, userId: t.de, ...data } });
+    await prisma.credential.updateMany({ where: { type: "PLATE", value: t.p, userId: t.de }, data: { notes } });
+    if (c.unitId) await anotarEnLote([c.unitId], { que: "DATO_CAMBIADO", persona: c.u.name, userId: c.u.id, chapa: t.p, detalle: `Corrigió el vehículo ${t.p} desde el portal (${[notes, data.brand, data.color].filter(Boolean).join(" · ")}).` }, { quien: c.u.name, origen: "censo" });
     return { ok: true };
 }
 
@@ -353,3 +362,17 @@ export async function editarServicio(token: string, servicioId: string, d: { tip
     await anotarEnLote([sv.unitId], { que: "SERVICIO_EDITADO", persona: `${rotuloServicio(d.tipo)}${nombre ? ` ${nombre}` : ""}`, userId: c.u.id, chapa: chapa || undefined, detalle: [`Lo corrigió ${c.u.name} desde su portal`, cuandoViene(data), autorizado ? "entrada habilitada en su horario" : null].filter(Boolean).join(" · ") }, { quien: c.u.name, origen: "censo" });
     return { ok: true };
 }
+
+/**
+ * Para qué es una matrícula, leído de la nota con que se cargó (27/11, Nico: «puse el jardinero y
+ * sus 3 autos: no marca ni color, pero podría decir Proveedor: jardinero»). El censo escribe
+ * «Proveedor · jardinero» (el rótulo y el «¿de quién?»), el portal escribía el id («PROVEEDOR · …»):
+ * se aceptan los dos. Sin nota, o con «Cargada desde…», es de la casa.
+ */
+function leerNota(nota: string | null | undefined): { tipo: string; quien: string } {
+    const [tipo, ...resto] = String(nota || "").split(" · ").map((x) => x.trim());
+    const t = TIPOS_VEHICULO.find((x) => x.id === tipo || x.rotulo.toLowerCase() === tipo.toLowerCase());
+    return t ? { tipo: t.id, quien: resto.join(" · ") } : { tipo: "PROPIO", quien: "" };
+}
+const rotuloVehiculo = (id: string) => TIPOS_VEHICULO.find((t) => t.id === id)?.rotulo || "De la casa";
+const notaVehiculo = (tipo: string, quien: string) => [rotuloVehiculo(tipo), quien].filter(Boolean).join(" · ");

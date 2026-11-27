@@ -313,7 +313,8 @@ function Tarjeta({ inv, token, pasada, alQr, alAgregar, alCambiar }: { inv: MyIn
 function Vehiculos({ token, datos, alPedir, alEditar, alCambiar }: { token: string; datos: MiPortal; alPedir: () => void; alEditar: (c: ChapaDelLote) => void; alCambiar: () => void }) {
     const [sacando, setSacando] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const mias = datos.chapas.filter((c) => c.mia), delLote = datos.chapas.filter((c) => !c.mia);
+    /* Las de la casa primero; las de proveedores y familiares, después. */
+    const mias = datos.chapas.filter((c) => c.mia).sort((a, b) => Number(!!a.uso) - Number(!!b.uso)), delLote = datos.chapas.filter((c) => !c.mia);
     const deChapas = datos.pedidos.filter((p) => p.tipo.startsWith("MATRICULA"));
     const pendientes = deChapas.filter((p) => p.estado === "PENDIENTE");
     const resueltos = deChapas.filter((p) => p.estado !== "PENDIENTE").slice(0, 6);
@@ -365,7 +366,7 @@ function Vehiculos({ token, datos, alPedir, alEditar, alCambiar }: { token: stri
                     <ul className="space-y-2">{delLote.map((c) => (
                         <li key={c.chapa} className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5">
                             <Chapa p={c.chapa} />
-                            <span className="min-w-0 flex-1 text-[12.5px] text-muted-foreground"><span className="block truncate">de {c.de}</span>{(c.marca || c.color) && <span className="block truncate">{[c.marca, c.color].filter(Boolean).join(" · ")}</span>}</span>
+                            <span className="min-w-0 flex-1 text-[12.5px] text-muted-foreground"><span className="block truncate">de {c.de}</span>{c.uso && <span className="block truncate font-semibold text-foreground">{c.uso}</span>}{(c.marca || c.color) && <span className="block truncate">{[c.marca, c.color].filter(Boolean).join(" · ")}</span>}</span>
                             {datos.altaDirecta && datos.soyDueno && <BotonEditar alTocar={() => alEditar(c)} />}
                         </li>
                     ))}</ul>
@@ -394,6 +395,8 @@ function Vehiculos({ token, datos, alPedir, alEditar, alCambiar }: { token: stri
 /** Marca y color del vehículo, o la invitación a completarlos. */
 function Vehiculo({ c }: { c: ChapaDelLote }) {
     const que = [c.marca, c.color].filter(Boolean).join(" · ");
+    /* Para qué es va primero cuando no es de la casa: «Proveedor: jardinero» dice más que «sin marca». */
+    if (c.uso) return <><span className="block truncate font-semibold">{c.uso}</span>{que && <span className="block truncate text-muted-foreground">{que}</span>}</>;
     return que ? <span className="block truncate font-semibold">{que}</span> : <span className="block text-muted-foreground">Sin marca ni color</span>;
 }
 
@@ -724,13 +727,20 @@ function Eliminar({ que, explica, confirma, alEliminar, alListo }: { que: string
 
 /** Corregir la marca y el color de un vehículo del lote, o sacarlo (27/11). */
 function HojaVehiculo({ token, c, alCerrar, alListo }: { token: string; c: ChapaDelLote; alCerrar: () => void; alListo: () => void }) {
-    const [f, setF] = useState({ marca: c.marca || "", color: c.color || "" });
+    const [f, setF] = useState({ marca: c.marca || "", color: c.color || "", tipo: c.tipo || "PROPIO", quien: c.quien || "" });
     const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     return (
         <Hoja titulo={`Editar ${c.chapa}`} bajada={c.mia ? "Está a tu nombre. Los cambios quedan al guardar." : `Es de ${c.de}. Como propietario del lote, podés corregirla o sacarla.`} alCerrar={alCerrar}
             pie={<><Enviar ocupado={ocupado} onClick={async () => { setError(""); setOcupado(true); try { const r = await editarVehiculo(token, c.chapa, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } catch { setError("No se pudo: revisá la conexión y probá de nuevo."); } finally { setOcupado(false); } }}><Check size={18} /> Guardar cambios</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
             <div className="mb-4 flex justify-center"><Chapa p={c.chapa} /></div>
             <p className="mb-4 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La matrícula no se edita: si cambiaste de auto, eliminá esta y sumá la nueva.</p>
+            <p className="mb-2 text-[13px] font-semibold">De quién es</p>
+            <div className="mb-4 grid grid-cols-3 gap-2">
+                {TIPOS_VEHICULO.map((t) => (
+                    <button key={t.id} type="button" onClick={() => setF({ ...f, tipo: t.id })} className={cn("min-h-11 rounded-full border px-2 text-[12.5px] font-semibold", PULSABLE, f.tipo === t.id ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)] text-[var(--accion)]" : "border-border")}>{t.rotulo}</button>
+                ))}
+            </div>
+            {f.tipo !== "PROPIO" && <Campo etiqueta={f.tipo === "FAMILIAR" ? "¿De quién?" : "¿Qué empresa o servicio?"} ayuda="Así lo ves en la lista, y la guardia sabe quién llega."><input value={f.quien} onChange={(e) => setF({ ...f, quien: e.target.value })} placeholder={f.tipo === "FAMILIAR" ? "Mateo, mi hijo" : "Jardinero"} className={ENTRADA} /></Campo>}
             <div className="grid grid-cols-2 gap-2.5">
                 <Campo etiqueta="Marca"><input value={f.marca} onChange={(e) => setF({ ...f, marca: e.target.value })} placeholder="Toyota" className={ENTRADA} /></Campo>
                 <Campo etiqueta="Color"><input value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} placeholder="Blanco" className={ENTRADA} /></Campo>

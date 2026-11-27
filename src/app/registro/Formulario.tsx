@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowUpRight, Car, Check, ChevronLeft, ChevronRight, Crosshair, Home, MapPin, Plus, Sparkles, Trash2, Wrench, X } from "lucide-react";
+import { ArrowUpRight, Car, Check, ChevronLeft, ChevronRight, Crosshair, Home, KeyRound, MapPin, Plus, Sparkles, Trash2, UserCheck, Wrench, X } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getAppBranding } from "@/app/actions/settings";
 import { OmniLogo } from "@/components/brand/OmniLogo";
@@ -97,6 +97,15 @@ const CLAVE = "oa.censo.borrador";
  * registrado; no se sabe si hay que volver a completar todos los datos o solamente agregar lo
  * nuevo». Ahora el formulario arranca con lo que ya mandó, y al enviar REEMPLAZA esa carga.
  */
+/**
+ * Quién figura en el padrón con ese vínculo, para el «¿Sos vos?» del primer paso (27/11). El
+ * teléfono y el correo van completos sólo si es la persona a la que le llegó el enlace; de los
+ * demás, tapados (el enlace del lote le llega a todos sus residentes: el inquilino no tiene por qué
+ * ver el celular del dueño).
+ */
+export type PersonaDelPadron = { nombre: string; apellido: string; telefono: string; email: string; completo: boolean };
+export type PadronDelLote = { PROPIETARIO: PersonaDelPadron[]; INQUILINO: PersonaDelPadron[] };
+
 export type CargaPrevia = { id: string; cuando: string; datos: Partial<Form> };
 
 export function Formulario({ centro, invitacion, cargas = [], previa, portal, altaDirecta = false }: {
@@ -114,7 +123,9 @@ export function Formulario({ centro, invitacion, cargas = [], previa, portal, al
         /** Dónde queda el lote según el plano del barrio (25/11): el punto ya viene puesto. */
         ubicacion?: [number, number] | null;
         /** A quién le llegó este enlace, cuando es la copia del código del lote a otro residente (25/11). */
-        de?: string };
+        de?: string;
+        /** Quién figura en el padrón como propietario y como inquilino de este lote (27/11). */
+        padron?: PadronDelLote };
 }) {
     /** Quien alquila u ocupa arranca marcado como inquilino: es lo que la administración ya sabe de él. */
     const tenenciaDe = (lote: string): Tenencia => { const v = invitacion?.lotes?.find((l) => l.nombre === lote)?.vinculo; return v === "INQUILINO" || v === "OCUPANTE" ? "INQUILINO" : "PROPIETARIO"; };
@@ -127,6 +138,10 @@ export function Formulario({ centro, invitacion, cargas = [], previa, portal, al
     const [f, setF] = useState<Form>(previa ? { ...VACIO, ...delaInvitacion, ...previa.datos } : delaInvitacion ? { ...VACIO, ...delaInvitacion } : VACIO);
     /** La carga que se está corrigiendo: la previa al entrar, o la que se acaba de mandar si vuelve a «agregar algo». */
     const [reemplaza, setReemplaza] = useState<{ id: string; cuando: string } | null>(previa ? { id: previa.id, cuando: previa.cuando } : null);
+    /* Lo primero es decir cómo vive en el lote (27/11, Nico: «primero elegir si soy propietario o
+       inquilino, y después me muestra quién es el propietario y sus datos»). Con una carga para
+       corregir ya lo dijo; sin invitación no hay padrón que mostrar y queda como estaba. */
+    const [eligio, setEligio] = useState(!!previa || !invitacion);
     const [enviando, setEnviando] = useState(false);
     const [errores, setErrores] = useState<string[]>([]);
     const [listo, setListo] = useState(false);
@@ -161,7 +176,7 @@ export function Formulario({ centro, invitacion, cargas = [], previa, portal, al
        el mapa. El correo es por donde vuelve el aviso del alta; el punto es lo que pone la casa en
        el plano, y sin él alguien tiene que ubicar trescientos lotes a mano. */
     const correoSirve = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(f.email.trim());
-    const puedeSeguir = paso > 0 || !!(f.lote.trim() && f.apellido.trim().length >= 2
+    const puedeSeguir = paso > 0 || !!(eligio && f.lote.trim() && f.apellido.trim().length >= 2
         && f.telefono.replace(/\D/g, "").length >= 8 && correoSirve && f.lat != null && f.lng != null);
 
     /** En barrio abierto la carga queda dada de alta al guardarla (api/registro): el agradecimiento no dice «se revisa». */
@@ -222,7 +237,14 @@ export function Formulario({ centro, invitacion, cargas = [], previa, portal, al
                             </div>
                         )}
                         {paso < 2 && cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente")).length > 0 && <YaCargaron altaDirecta={altaDirecta} cargas={cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente"))} />}
-                        {paso === 0 && <PasoCasa f={f} set={set} centro={centro} delPlano={ubicacionLote} loteFijo={!!invitacion} lotes={invitacion?.lotes} alElegirLote={(l) => setF((v) => ({ ...v, lote: l, tenencia: tenenciaDe(l) }))} />}
+                        {paso === 0 && <PasoCasa f={f} set={set} centro={centro} delPlano={ubicacionLote} loteFijo={!!invitacion} lotes={invitacion?.lotes} alElegirLote={(l) => setF((v) => ({ ...v, lote: l, tenencia: tenenciaDe(l) }))}
+                            eligio={eligio} padron={invitacion?.padron}
+                            alElegirTenencia={(t) => {
+                                setEligio(true);
+                                /* Si quien figura con ese vínculo es la persona del enlace, sus datos ya van puestos. */
+                                const yo = invitacion?.padron?.[t]?.find((p) => p.completo);
+                                setF((v) => ({ ...v, tenencia: t, ...(yo ? { nombre: yo.nombre, apellido: yo.apellido, telefono: v.telefono || yo.telefono, email: v.email || yo.email } : {}) }));
+                            }} />}
                         {paso === 1 && <PasoVehiculos f={f} set={set} cargas={cargas} />}
                         {paso === 2 && <PasoServicios f={f} set={set} altaDirecta={altaDirecta} />}
                     </motion.div>
@@ -457,8 +479,9 @@ function Seccion({ icono: I, titulo, children }: { icono: typeof Car; titulo: st
     );
 }
 
-function PasoCasa({ f, set, centro, delPlano, loteFijo, lotes, alElegirLote }: {
+function PasoCasa({ f, set, centro, delPlano, loteFijo, lotes, alElegirLote, eligio = true, padron, alElegirTenencia }: {
     f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; centro: [number, number]; loteFijo?: boolean;
+    eligio?: boolean; padron?: PadronDelLote; alElegirTenencia?: (t: Tenencia) => void;
     /** El punto del lote según el plano del barrio, si se sabe. */
     delPlano?: [number, number] | null;
     /** Los lotes de la invitación, cuando son más de uno: se elige para cuál es esta carga. */
@@ -480,6 +503,9 @@ function PasoCasa({ f, set, centro, delPlano, loteFijo, lotes, alElegirLote }: {
                     <p className="mt-1.5 text-[12px] text-muted-foreground">Cuando termines con éste, entrás de nuevo por el mismo enlace y cargás el otro.</p>
                 </div>
             )}
+            <ComoVivis f={f} eligio={eligio} padron={padron} alElegir={(t) => (alElegirTenencia ? alElegirTenencia(t) : set("tenencia", t))}
+                alSoyYo={(p) => { set("nombre", p.nombre); set("apellido", p.apellido); if (p.completo) { if (p.telefono) set("telefono", p.telefono); if (p.email) set("email", p.email); } }} />
+            {eligio && <>
             <div className="grid grid-cols-2 gap-3">
                 {/* Con invitación el lote no se escribe: lo trae la clave del correo, y dejarlo
                     editable sería ofrecer cargar el padrón del vecino. */}
@@ -496,20 +522,71 @@ function PasoCasa({ f, set, centro, delPlano, loteFijo, lotes, alElegirLote }: {
             <Campo rotulo="Correo" ayuda="Ahí te avisamos cuando quede dado de alta.">
                 <input value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="nombre@correo.com" inputMode="email" autoCapitalize="none" className={ENTRADA} />
             </Campo>
+            {delPlano ? <UbicacionDelPlano f={f} set={set} delPlano={delPlano} /> : <Ubicacion f={f} set={set} centro={centro} />}
+            </>}
+        </Seccion>
+    );
+}
+
+/**
+ * «¿Cómo vivís en el lote?» va primero, en grande, y recién después los datos (27/11). Elegido, se
+ * muestra cómo figura esa parte en el padrón —el propietario o el inquilino— con «Soy yo» para no
+ * escribir de nuevo lo que la administración ya tiene. Si no figura nadie, se dice: es justo lo
+ * que el censo viene a completar.
+ */
+function ComoVivis({ f, eligio, padron, alElegir, alSoyYo }: { f: Form; eligio: boolean; padron?: PadronDelLote; alElegir: (t: Tenencia) => void; alSoyYo: (p: PersonaDelPadron) => void }) {
+    const ICONO = { PROPIETARIO: KeyRound, INQUILINO: Home } as const;
+    const BAJADA = { PROPIETARIO: "La casa es tuya.", INQUILINO: "Alquilás o vivís prestado." } as const;
+    const quienes = eligio && padron ? padron[f.tenencia] || [] : [];
+    const escrito = [f.nombre, f.apellido].join(" ").trim().toLowerCase();
+    return (
+        <div className="space-y-3">
             <div>
-                <span className="block text-[13px] font-semibold mb-1.5">¿Cómo vivís en el lote?</span>
-                <div className="grid grid-cols-2 gap-2">
-                    {TENENCIAS.map((t) => (
-                        <button key={t.id} type="button" onClick={() => set("tenencia", t.id)}
-                            className={cn("h-12 rounded-[10px] border text-[14px] font-semibold transition-colors", PULSABLE,
-                                f.tenencia === t.id ? "border-[var(--accion)] text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent")}>
-                            {t.rotulo}
-                        </button>
-                    ))}
+                <span className="block text-[15px] font-bold mb-0.5">{eligio ? "Cómo vivís en el lote" : "Primero: ¿cómo vivís en el lote?"}</span>
+                {!eligio && <span className="block text-[13px] text-muted-foreground mb-2">Con eso te mostramos lo que ya figura en el padrón.</span>}
+                <div className={cn("grid grid-cols-2 gap-2", eligio && "mt-1.5")} role="radiogroup" aria-label="Cómo vivís en el lote">
+                    {TENENCIAS.map((t) => {
+                        const I = ICONO[t.id as keyof typeof ICONO] || Home;
+                        const activa = eligio && f.tenencia === t.id;
+                        return (
+                            <button key={t.id} type="button" role="radio" aria-checked={activa} onClick={() => alElegir(t.id)}
+                                className={cn("rounded-[10px] border text-left transition-colors", PULSABLE, eligio ? "h-12 px-3 flex items-center gap-2" : "p-3.5",
+                                    activa ? "border-[var(--accion)] text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent")}>
+                                <I size={eligio ? 16 : 22} className={cn("shrink-0", !eligio && "mb-2")} />
+                                <span className="block"><span className="block text-[14px] font-semibold">{t.rotulo}</span>{!eligio && <span className="block text-[12px] font-normal text-muted-foreground">{BAJADA[t.id as keyof typeof BAJADA]}</span>}</span>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
-            {delPlano ? <UbicacionDelPlano f={f} set={set} delPlano={delPlano} /> : <Ubicacion f={f} set={set} centro={centro} />}
-        </Seccion>
+            {eligio && padron && (
+                <div className="rounded-[10px] border border-border bg-card p-3.5">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{f.tenencia === "INQUILINO" ? "Inquilino" : "Propietario"} según el padrón</p>
+                    {quienes.length === 0 ? (
+                        <p className="mt-1 text-[13px] leading-snug text-muted-foreground">No figura ningún {f.tenencia === "INQUILINO" ? "inquilino" : "propietario"} en este lote. Cargá tus datos abajo y quedás vos.</p>
+                    ) : (
+                        <ul className="mt-2 space-y-2">
+                            {quienes.map((p, i) => {
+                                const nombre = [p.nombre, p.apellido].filter(Boolean).join(" ");
+                                const yaEs = !!escrito && escrito === nombre.toLowerCase();
+                                return (
+                                    <li key={i} className="flex items-center gap-3">
+                                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted text-[13px] font-bold">{(p.apellido || p.nombre).charAt(0).toUpperCase()}</span>
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block truncate text-[14px] font-semibold">{nombre}</span>
+                                            <span className="block truncate text-[12px] text-muted-foreground tabular-nums">{[p.telefono, p.email].filter(Boolean).join(" · ") || "Sin celular ni correo"}</span>
+                                        </span>
+                                        {yaEs ? <span className="inline-flex items-center gap-1 text-[12.5px] font-semibold tono-bien"><Check size={14} /> Sos vos</span>
+                                            : <button type="button" onClick={() => alSoyYo(p)} className={cn("inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[8px] border border-border px-3 text-[12.5px] font-semibold", PULSABLE)}><UserCheck size={14} /> Soy yo</button>}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                    {quienes.length > 0 && <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">Si sos vos, revisá y corregí lo que haya cambiado. Si no, cargá tus datos abajo.</p>}
+                </div>
+            )}
+        </div>
     );
 }
 

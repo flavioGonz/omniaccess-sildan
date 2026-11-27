@@ -3,7 +3,7 @@ import { funcionActiva } from "@/app/actions/funciones";
 import { getBarrioMap } from "@/app/actions/barriomap";
 import { prisma } from "@/lib/prisma";
 import { normalizarClave } from "@/lib/censo-invitaciones";
-import { Formulario, type CargaDelLote, type CargaPrevia } from "../Formulario";
+import { Formulario, type CargaDelLote, type CargaPrevia, type PadronDelLote, type PersonaDelPadron } from "../Formulario";
 import { lineaDeServicio } from "@/lib/censo-servidor";
 import { getOrCreatePortalToken } from "@/app/actions/invitations";
 import { ZONA } from "@/lib/fechas";
@@ -86,5 +86,34 @@ export default async function RegistroConClave({ params, searchParams }: { param
     const portal = deQuien ? await getOrCreatePortalToken(deQuien).then((r) => (r.ok && r.token ? `/residente/${r.token}` : null)).catch(() => null) : null;
     // Barrio abierto: lo que se carga queda dado de alta al guardar (api/registro: aplicarAlGuardar).
     const altaDirecta = (await leerAjustesVisitas().catch(() => null))?.modo === "ABIERTO";
-    return <Formulario centro={center} cargas={cargas} previa={previa} portal={portal} altaDirecta={altaDirecta} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id }} />;
+    /* Quién figura como propietario y como inquilino (27/11): el primer paso pregunta cómo vive y
+       muestra esa parte del padrón. Completo sólo para la persona a la que le llegó el enlace. */
+    const padron: PadronDelLote = { PROPIETARIO: [], INQUILINO: [] };
+    if (inv.unitId) {
+        const vs = await prisma.userUnidad.findMany({ where: { unitId: inv.unitId }, orderBy: { createdAt: "asc" }, take: 12, select: { vinculo: true, user: { select: { id: true, name: true, phone: true, email: true } } } }).catch(() => []);
+        for (const v of vs) {
+            const rol = v.vinculo === "PROPIETARIO" ? "PROPIETARIO" : v.vinculo === "INQUILINO" || v.vinculo === "OCUPANTE" ? "INQUILINO" : null;
+            if (!rol) continue;
+            const completo = !!deQuien && v.user.id === deQuien;
+            const partes = String(v.user.name || "").trim().split(/\s+/);
+            const p: PersonaDelPadron = {
+                nombre: partes.length > 1 ? partes.slice(0, -1).join(" ") : "", apellido: partes[partes.length - 1] || "",
+                telefono: completo ? v.user.phone || "" : taparTelefono(v.user.phone), email: completo ? (v.user.email && !v.user.email.endsWith(".local") ? v.user.email : "") : taparCorreo(v.user.email),
+                completo,
+            };
+            padron[rol].push(p);
+        }
+    }
+    return <Formulario centro={center} cargas={cargas} previa={previa} portal={portal} altaDirecta={altaDirecta} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id, padron }} />;
+}
+
+/** «•••• 456»: alcanza para reconocer el propio sin mostrarle a otro el celular de nadie. */
+function taparTelefono(t: string | null | undefined): string {
+    const d = String(t || "").replace(/\D/g, "");
+    return d.length >= 6 ? `•••• ${d.slice(-3)}` : "";
+}
+/** «j•••@gmail.com». Los correos inventados por la importación (…@….local) no se muestran. */
+function taparCorreo(e: string | null | undefined): string {
+    const m = String(e || "").match(/^([^@])[^@]*@(.+)$/);
+    return m && !m[2].endsWith(".local") ? `${m[1]}•••@${m[2]}` : "";
 }
