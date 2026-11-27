@@ -29,6 +29,7 @@ import { PasoVisionCanal, type PasoVision } from "@/components/monitor/camaras/P
 import { EnlacesBaldosa, cuadroCover, aCuadro, type Enlace } from "@/components/monitor/camaras/EnlacesBaldosa";
 import { setVisualTrackLinks, type TrackLink } from "@/app/actions/detections";
 import { EditorVista } from "@/components/monitor/camaras/Editor";
+import { guardarVistaCamaras } from "@/app/actions/monitores";
 import { abrirVentana, listarPantallas, hayVariasPantallasApi, clavePrefs, type Pantalla } from "@/components/monitor/camaras/ventanas";
 import { proximoIntento, esCorteGeneral } from "@/lib/vivo-reintento";
 import { cn } from "@/lib/utils";
@@ -111,7 +112,19 @@ type Datos = {
     /** Faltó algún grabador o alguna línea (se siguen leyendo de fondo): se vuelve a pedir enseguida. */
     incompleto?: boolean };
 /** colMovil: en el celular la pared es una lista que se desliza, de 1 o 2 columnas. */
-type Prefs = { vista: string; disposicion: string; pagSeg: number; pausa: boolean; nvr: string; area: string; colMovil: 1 | 2 };
+type Prefs = { vista: string; disposicion: string; pagSeg: number; pausa: boolean; nvr: string; area: string; colMovil: 1 | 2; tipo?: TipoCanal; /** Cámaras puestas a mano en casillas vacías de la vista automática (además de las que filtra). */ extras?: string[] };
+/**
+ * Por lo que hace la cámara (27/11, Nico: «no puedo filtrar y mostrar las cámaras LPR de
+ * OmniVision; elijo el área LPR y falta una»). El área es dónde está; una LPR interior que vive en
+ * el área de su calle no aparecía en «LPR». «Lee matrículas» junta las LPR de la cámara (ANPR) y
+ * las que lee OmniVision por RTSP.
+ */
+type TipoCanal = "todos" | "lpr" | "intrusion";
+const TIPOS_CANAL: { id: TipoCanal; rotulo: string }[] = [
+    { id: "todos", rotulo: "Todos los tipos" },
+    { id: "lpr", rotulo: "Leen matrículas (ANPR y OmniVision)" },
+    { id: "intrusion", rotulo: "Vigilan una línea o una zona" },
+];
 type Celda = { casilla: Casilla; canal: Canal | null; claveFaltante?: string | null };
 
 const PREFS_INICIALES: Prefs = { vista: AUTO, disposicion: DISPOSICION_POR_DEFECTO, pagSeg: 20, pausa: false, nvr: "todos", area: "todas", colMovil: 1 };
@@ -216,7 +229,9 @@ const PASO_VISION_MIN_MS = 1400;
 const PASO_VISION_LISTO_MS = 2600;
 const PASO_VISION_ERROR_MS = 9000;
 
-function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso, enlaces = [], editandoSeg = false, alSeguir, alSoltarCanal, alCambiarEnlaces, lista = null, alMenu }: {
+function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso, enlaces = [], editandoSeg = false, alSeguir, alSoltarCanal, alCambiarEnlaces, lista = null, alMenu, alElegirVacia, alSoltarEnVacia }: {
+    /** Casilla vacía: abrir las cámaras para elegir una, o soltar una arrastrada (27/11). */
+    alElegirVacia?: () => void; alSoltarEnVacia?: (clave: string) => void;
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
     /** Una chapa de la lista negra en este canal: se resalta y se dibuja su vehículo en vivo (ver AlertaDeLista). */
     lista?: AlertaLista | null;
@@ -251,9 +266,24 @@ function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alRe
     const c = celda.canal;
     const grande = celda.casilla.w > 1;
     if (!c) {
+        /* Una casilla vacía invita a llenarla (27/11, Nico: «un canal vacío tendrá un botón en el centro
+           para abrir el cajón de cámaras y poder elegir o arrastrar canales»). */
         return (
-            <div style={estiloCasilla(celda.casilla)} className="relative min-h-0 rounded-[10px] bg-muted/60 ring-1 ring-border grid place-items-center text-[12px] text-muted-foreground/70">
-                {celda.claveFaltante ? "El canal de esta casilla ya no está" : ""}
+            <div style={estiloCasilla(celda.casilla)}
+                onDragOver={alSoltarEnVacia ? (e) => { if (e.dataTransfer.types.includes(TIPO_ARRASTRE)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; if (!encima) setEncima(true); } } : undefined}
+                onDragLeave={() => setEncima(false)}
+                onDrop={alSoltarEnVacia ? (e) => { e.preventDefault(); setEncima(false); const k = e.dataTransfer.getData(TIPO_ARRASTRE); if (k) alSoltarEnVacia(k); } : undefined}
+                className={cn("relative min-h-0 rounded-[10px] grid place-items-center text-[12px] text-muted-foreground/70 transition-colors",
+                    encima ? "bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] ring-2 ring-[var(--accion)]" : "bg-muted/60 ring-1 ring-border")}>
+                <div className="flex flex-col items-center gap-2 px-3 text-center">
+                    {celda.claveFaltante && <span>El canal de esta casilla ya no está</span>}
+                    {alElegirVacia && (
+                        <button type="button" onClick={alElegirVacia} className="inline-flex h-10 items-center gap-2 rounded-full bg-[var(--accion)] px-4 text-[13px] font-semibold text-white">
+                            <Plus size={16} /> Elegir cámara
+                        </button>
+                    )}
+                    {alElegirVacia && <span className="text-[11.5px] text-muted-foreground">o arrastrá una acá</span>}
+                </div>
             </div>
         );
     }
@@ -567,14 +597,21 @@ export function VistaCamaras() {
         return m;
     }, [areas]);
     const enArea = useCallback((c: Canal, area: string) => area === "todas" ? true : area === SIN_AREA ? !c.areaId || !bajoArea.has(c.areaId) : !!c.areaId && !!bajoArea.get(area)?.has(c.areaId), [bajoArea]);
-    const nombreArea = areaSel === "todas" ? null : areaSel === SIN_AREA ? "Sin área" : areas.find((a) => a.id === areaSel)?.nombre || null;
+    const tipoSel: TipoCanal = prefs?.tipo === "lpr" || prefs?.tipo === "intrusion" ? prefs.tipo : "todos";
+    const deTipo = useCallback((c: Canal, t: TipoCanal) => t === "todos" || c.funcion === t, []);
+    const nombreArea = [areaSel === "todas" ? null : areaSel === SIN_AREA ? "Sin área" : areas.find((a) => a.id === areaSel)?.nombre || null,
+        tipoSel === "lpr" ? "LPR" : tipoSel === "intrusion" ? "Intrusión" : null].filter(Boolean).join(" · ") || null;
 
     // Automática: las que detectan van primero (a la casilla grande, si hay); el resto en el orden del NVR.
     const ordenados = useMemo(() => {
-        const f = todos.filter((c) => (filtro === "todos" || grupoDe(c) === filtro) && enArea(c, areaSel));
+        const base = todos.filter((c) => (filtro === "todos" || grupoDe(c) === filtro) && enArea(c, areaSel) && deTipo(c, tipoSel));
+        // Las elegidas a mano para una casilla vacía (ver CajonCanales) van además de las del filtro.
+        const ya = new Set(base.map((c) => c.clave));
+        const f = [...base, ...(prefs?.extras || []).map((k) => todos.find((c) => c.clave === k)).filter((c): c is Canal => !!c && !ya.has(c.clave))];
         const con = f.filter((c) => alertaDe(c)).sort((a, b) => +new Date(alertaDe(b)!.ts) - +new Date(alertaDe(a)!.ts));
         return [...con, ...f.filter((c) => !alertaDe(c))];
-    }, [todos, filtro, alertaDe, enArea, areaSel]);
+    }, [todos, filtro, alertaDe, enArea, areaSel, deTipo, tipoSel, prefs?.extras]);
+    const enVista = useMemo(() => new Set((modoVista === "guardada" && guardada ? guardada.canales.filter(Boolean) as string[] : ordenados.map((c) => c.clave))), [modoVista, guardada, ordenados]);
     const porPagina = disp.casillas.length;
     const paginas = modoVista === "auto" ? Math.max(1, Math.ceil(ordenados.length / porPagina)) : 1;
     const [pagina, setPagina] = useState(0);
@@ -634,7 +671,7 @@ export function VistaCamaras() {
     }, [celdas, h265, resultados, movil, lista, aLaVista]);
 
     // Hay cámaras, pero los filtros de grabador y área no dejan ninguna.
-    const sinPorFiltro = modoVista === "auto" && !!datos && datos.canales.length > 0 && ordenados.length === 0 && (filtro !== "todos" || areaSel !== "todas");
+    const sinPorFiltro = modoVista === "auto" && !!datos && datos.canales.length > 0 && ordenados.length === 0 && (filtro !== "todos" || areaSel !== "todas" || tipoSel !== "todos");
     // Cuántas baldosas de la pantalla están sin su vivo porque falló: las que tienen un fallo anotado
     // y no están reproduciendo en el modo que les tocó. No cuentan las que van en foto por el tope de
     // convertidas, ni la que no abre directo pero sí convertida. La que se está probando de nuevo
@@ -683,6 +720,8 @@ export function VistaCamaras() {
     const fuentesPorId = useMemo(() => new Map((datos?.fuentes || []).map((f) => [f.id, f])), [datos?.fuentes]);
     const [pantallas, setPantallas] = useState<Pantalla[] | null>(null);
     const [aviso, setAviso] = useState<string | null>(null);
+    /** El panel para llenar una casilla vacía (ver CajonCanales) y la casilla elegida. */
+    const [cajonCanales, setCajonCanales] = useState<{ casilla: number | null } | null>(null);
     /** Por canal: en qué paso está su entrada o salida de OmniVision (se dibuja en el canal mismo). */
     const [pasosVision, setPasosVision] = useState<Record<string, PasoVision>>({});
     /**
@@ -792,6 +831,18 @@ export function VistaCamaras() {
     const haySinArea = todos.some((c) => enArea(c, SIN_AREA));
     const opcionesArea = (
         <>
+            <p className="px-2 pt-1 pb-1 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Qué hacen</p>
+            {TIPOS_CANAL.map((t) => {
+                const n = todos.filter((c) => deTipo(c, t.id) && enArea(c, areaSel)).length;
+                if (t.id !== "todos" && !n) return null;
+                return (
+                    <OpcionMenu key={t.id} onClick={() => { setPrefs({ tipo: t.id }); setPagina(0); setMenu(null); }} elegida={tipoSel === t.id}>
+                        <span className="flex-1 truncate">{t.rotulo}</span>
+                        <span className="text-[12px] text-muted-foreground tabular-nums">{n}</span>
+                    </OpcionMenu>
+                );
+            })}
+            <p className="mt-1 border-t border-border px-2 pt-2 pb-1 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Dónde están</p>
             <OpcionMenu onClick={() => { setPrefs({ area: "todas" }); setPagina(0); setMenu(null); }} elegida={areaSel === "todas"}>
                 <span className="flex-1 truncate">Todas las áreas</span>
                 <span className="text-[12px] text-muted-foreground tabular-nums">{todos.length}</span>
@@ -809,6 +860,11 @@ export function VistaCamaras() {
                     </OpcionMenu>
                 );
             })}
+            {(prefs?.extras?.length || 0) > 0 && (
+                <OpcionMenu onClick={() => { setPrefs({ extras: [] }); setPagina(0); setMenu(null); }} elegida={false}>
+                    <span className="flex-1 truncate text-muted-foreground">Quitar las {prefs!.extras!.length} puestas a mano</span>
+                </OpcionMenu>
+            )}
             {haySinArea && (
                 <OpcionMenu onClick={() => { setPrefs({ area: SIN_AREA }); setPagina(0); setMenu(null); }} elegida={areaSel === SIN_AREA}>
                     <span className="flex-1 truncate text-muted-foreground">Sin área</span>
@@ -817,7 +873,6 @@ export function VistaCamaras() {
             )}
         </>
     );
-    const hayAreas = areas.length > 0;
 
     /**
      * Mandar a OmniVision o retirar (PUT /api/vision/camaras/<id>, permiso Ajustes). El servidor
@@ -842,6 +897,28 @@ export function VistaCamaras() {
         setTimeout(() => setPasosVision((s) => (s[c.clave]?.fase === "listo" || s[c.clave]?.fase === "retirado" ? (({ [c.clave]: _, ...resto }) => resto)(s) : s)), PASO_VISION_LISTO_MS);
     };
 
+    /*
+     * Poner una cámara en una casilla vacía (27/11). En una vista guardada se guarda en ESA casilla (si
+     * se puede editar); en la automática se suma a la lista, además de lo que deja el filtro.
+     */
+    const ponerEnCasilla = async (i: number | null, clave: string) => {
+        if (modoVista === "guardada" && guardada) {
+            if (!datos?.puedeEditar) { setAviso("Esta vista la puede cambiar quien edita las vistas."); return; }
+            const canales = [...guardada.canales];
+            const destino = i ?? canales.findIndex((x) => !x || !porClave.get(x));
+            if (destino < 0) { setAviso("No hay casillas vacías en esta vista."); return; }
+            const j = canales.indexOf(clave); if (j >= 0 && j !== destino) canales[j] = null;
+            canales[destino] = clave;
+            const r = await guardarVistaCamaras({ ...guardada, canales }).catch(() => null);
+            if (!r || (r as { ok?: boolean }).ok === false) { setAviso("No se pudo guardar la vista."); return; }
+            await recargar();
+        } else if (modoVista === "auto") {
+            if (ordenados.some((c) => c.clave === clave)) { setAviso("Esa cámara ya está en la vista."); return; }
+            setPrefs({ extras: [...(prefs?.extras || []), clave] });
+        }
+        setCajonCanales(null);
+    };
+
     const baldosa = (celda: Celda, i: number, libre = false) => !celda.canal && esClaveWeb(celda.claveFaltante) ? (
         <CasillaWeb key={`${celda.claveFaltante}-${i}`} casilla={celda.casilla} clave={celda.claveFaltante} libre={libre} fuente={fuentesPorId.get(idDeClaveWeb(celda.claveFaltante)) || null} />
     ) : (
@@ -858,8 +935,12 @@ export function VistaCamaras() {
             alCambiarEnlaces={(n) => { if (celda.canal) void guardarSeg(celda.canal, n); }}
             alGrabacion={celda.canal?.nvrId && celda.canal.ch != null ? () => { const k = celda.canal!; const a = alertaDe(k); setGrabacionInicial(a ? +new Date(a.ts) - 5000 : Date.now() - 60_000); setAbiertaClave(k.clave); } : undefined}
             alVentana={!movil && celda.canal ? () => { const k = celda.canal!; if (!abrirVentana({ canal: k.clave }, `canal-${k.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined}
-            alVision={datos?.vision?.puedeCambiar && celda.canal ? () => ponerEnVision(celda.canal!) : undefined} pasoVision={celda.canal ? pasosVision[celda.canal.clave] || null : null}
-            alCerrarPaso={celda.canal ? () => ponerPaso(celda.canal!.clave, null) : undefined} />
+            /* Sin el botón de agregar/retirar de OmniVision en la pared (27/11, Nico: «no ayuda ahí, se pueden
+               cometer errores»): queda en la ficha del canal. */
+            pasoVision={celda.canal ? pasosVision[celda.canal.clave] || null : null}
+            alCerrarPaso={celda.canal ? () => ponerPaso(celda.canal!.clave, null) : undefined}
+            alElegirVacia={!celda.canal && !libre && modoVista !== "solo" ? () => setCajonCanales({ casilla: i }) : undefined}
+            alSoltarEnVacia={!celda.canal && !libre && modoVista !== "solo" ? (k) => void ponerEnCasilla(i, k) : undefined} />
     );
 
     const estados = (
@@ -880,6 +961,10 @@ export function VistaCamaras() {
     return (
         <div className="absolute inset-0 flex flex-col">
             <LiveEdgeKeeper />
+            {cajonCanales && !movil && (
+                <CajonCanales canales={todos} enVista={enVista} casilla={cajonCanales.casilla}
+                    alPoner={(k) => void ponerEnCasilla(cajonCanales.casilla, k)} alCerrar={() => setCajonCanales(null)} />
+            )}
             {/* Escritorio: los controles van en el encabezado del marco, en la misma fila que el título y la hora. */}
             {!movil && (
                 <BarraDelMarco>
@@ -909,11 +994,11 @@ export function VistaCamaras() {
                                         </div>
                                     </Flotante>
                                 </div>
-                                {hayAreas && modoVista === "auto" && (
+                                {modoVista === "auto" && (
                                     <div className="relative shrink-0">
-                                        <BotonBarra onClick={() => alternar("area")} activo={menu === "area"} titulo="Mostrar las cámaras de un área de Dispositivos">
-                                            <FolderTree size={15} className={areaSel === "todas" ? "text-muted-foreground" : "text-[var(--accion-en-oscuro)]"} />
-                                            <span className="max-w-[160px] truncate">{nombreArea || "Todas las áreas"}</span>
+                                        <BotonBarra onClick={() => alternar("area")} activo={menu === "area"} titulo="Mostrar las cámaras de un tipo (LPR, intrusión) o de un área de Dispositivos">
+                                            <FolderTree size={15} className={areaSel === "todas" && tipoSel === "todos" ? "text-muted-foreground" : "text-[var(--accion-en-oscuro)]"} />
+                                            <span className="max-w-[160px] truncate">{nombreArea || "Todas las cámaras"}</span>
                                             <ChevronDown size={14} className="text-muted-foreground" />
                                         </BotonBarra>
                                         <Flotante abierto={menu === "area"} alCerrar={cerrarMenu} className="w-[280px] max-h-[60vh] overflow-y-auto">{opcionesArea}</Flotante>
@@ -1007,8 +1092,8 @@ export function VistaCamaras() {
                         → la pared quedaba con todas las casillas vacías y sin una palabra; pareció que el módulo no andaba). */}
                     {sinPorFiltro && (
                         <div role="status" className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px] flex items-center gap-3">
-                            <span className="flex-1">Ninguna cámara coincide con lo elegido arriba ({[filtro !== "todos" ? `grabador «${filtro}»` : null, areaSel !== "todas" ? `área «${areaSel === SIN_AREA ? "sin área" : areas.find((x) => x.id === areaSel)?.nombre || "elegida"}»` : null].filter(Boolean).join(" y ")}).</span>
-                            <button type="button" onClick={() => setPrefs({ nvr: "todos", area: "todas" })} className="h-8 px-3 rounded-[6px] bg-[var(--accion)] text-white text-[12.5px] font-semibold shrink-0">Ver todas las cámaras</button>
+                            <span className="flex-1">Ninguna cámara coincide con lo elegido arriba ({[filtro !== "todos" ? `grabador «${filtro}»` : null, areaSel !== "todas" ? `área «${areaSel === SIN_AREA ? "sin área" : areas.find((x) => x.id === areaSel)?.nombre || "elegida"}»` : null, tipoSel !== "todos" ? `tipo «${tipoSel === "lpr" ? "LPR" : "intrusión"}»` : null].filter(Boolean).join(" y ")}).</span>
+                            <button type="button" onClick={() => setPrefs({ nvr: "todos", area: "todas", tipo: "todos" })} className="h-8 px-3 rounded-[6px] bg-[var(--accion)] text-white text-[12.5px] font-semibold shrink-0">Ver todas las cámaras</button>
                         </div>
                     )}
                     {!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos && <div className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">Esa vista ya no existe: se muestra la automática.</div>}
@@ -1037,7 +1122,7 @@ export function VistaCamaras() {
                     items={[
                         { k: "vista", Icono: LayoutGrid, rotulo: guardada ? guardada.nombre : "Vista", activo: menu === "vista", onClick: () => alternar("vista") },
                         { k: "col", Icono: prefs?.colMovil === 2 ? Columns2 : Rows3, rotulo: prefs?.colMovil === 2 ? "2 columnas" : "1 columna", onClick: () => setPrefs({ colMovil: prefs?.colMovil === 2 ? 1 : 2 }) },
-                        ...(modoVista === "auto" && hayAreas ? [{ k: "area", Icono: FolderTree, rotulo: nombreArea || "Áreas", activo: menu === "area", onClick: () => alternar("area") }] : []),
+                        ...(modoVista === "auto" ? [{ k: "area", Icono: FolderTree, rotulo: nombreArea || "Áreas", activo: menu === "area", onClick: () => alternar("area") }] : []),
                         ...(modoVista === "auto" && hayNvrs ? [{ k: "nvr", Icono: Server, rotulo: filtro === "todos" ? "NVR" : filtro, activo: menu === "nvr", onClick: () => alternar("nvr"), punto: nvrsCaidos.length > 0 }] : []),
                         { k: "buscar", Icono: ScanSearch, rotulo: "Buscar", activo: !!buscar, onClick: () => setBuscar({ canal: null }) },
                         { k: "recursos", Icono: Gauge, rotulo: "Servidor", activo: menu === "recursos", onClick: () => alternar("recursos") },
@@ -1203,5 +1288,63 @@ function Esqueleto({ casillas, movil }: { casillas: number; movil: boolean }) {
                 )}
             </AnimatePresence>
         </>
+    );
+}
+
+/**
+ * Las cámaras, en un panel al costado que NO tapa la pared (27/11): se busca, se toca una para
+ * ponerla en la casilla vacía que se eligió, o se la arrastra a cualquier casilla vacía. No es un
+ * cajón modal a propósito: con uno modal no se puede soltar sobre la pared.
+ */
+function CajonCanales({ canales, enVista, casilla, alPoner, alCerrar }: {
+    canales: Canal[]; enVista: Set<string>; casilla: number | null;
+    alPoner: (clave: string) => void; alCerrar: () => void;
+}) {
+    const [q, setQ] = useState("");
+    const lista = useMemo(() => {
+        const t = q.trim().toLowerCase();
+        return canales.filter((c) => !t || `${c.nombre} ${c.nvr || ""}`.toLowerCase().includes(t))
+            .sort((a, b) => Number(enVista.has(a.clave)) - Number(enVista.has(b.clave)) || a.nombre.localeCompare(b.nombre));
+    }, [canales, q, enVista]);
+    return (
+        <aside className="absolute right-3 top-3 bottom-3 z-40 flex w-[320px] flex-col overflow-hidden rounded-[14px] border border-border bg-popover/95 shadow-[var(--sombra-flotante)] backdrop-blur-xl">
+            <div className="flex items-center gap-2 border-b border-border px-3.5 py-3">
+                <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-bold">Elegir cámara</p>
+                    <p className="text-[11.5px] text-muted-foreground">{casilla != null ? "Tocá una para ponerla en la casilla, o arrastrala a otra vacía." : "Arrastrá una cámara a una casilla vacía."}</p>
+                </div>
+                <button type="button" onClick={alCerrar} title="Cerrar" className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted"><X size={16} /></button>
+            </div>
+            <div className="px-3 pt-3">
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre o NVR" autoFocus
+                    className="h-9 w-full rounded-[6px] border border-border bg-background px-3 text-[13px] outline-none focus:border-[var(--accion)]" />
+            </div>
+            <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
+                {lista.map((c) => {
+                    const ya = enVista.has(c.clave);
+                    const foto = fotoDe(c, 320);
+                    return (
+                        <li key={c.clave}>
+                            <button type="button" draggable={!ya} disabled={ya}
+                                onDragStart={(e) => { e.dataTransfer.setData(TIPO_ARRASTRE, c.clave); e.dataTransfer.effectAllowed = "copy"; }}
+                                onClick={() => alPoner(c.clave)}
+                                className={cn("flex w-full items-center gap-2.5 rounded-[10px] p-1.5 text-left transition-colors", ya ? "opacity-45" : "cursor-grab hover:bg-muted active:cursor-grabbing")}>
+                                <span className="relative h-12 w-20 shrink-0 overflow-hidden rounded-[6px] bg-neutral-900">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    {foto && <img src={foto} alt="" loading="lazy" draggable={false} className="h-full w-full object-cover" />}
+                                    {c.online === false && <span className="absolute inset-0 grid place-items-center bg-black/60 text-white/70"><VideoOff size={14} /></span>}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-[13px] font-semibold">{c.nombre}</span>
+                                    <span className="block truncate text-[11.5px] text-muted-foreground">{ya ? "Ya está en la vista" : ubicacion(c)}</span>
+                                </span>
+                                {c.funcion && <span className="shrink-0 text-muted-foreground" title={c.funcion === "lpr" ? "Lee matrículas" : "Vigila una línea o una zona"}>{c.funcion === "lpr" ? <Car size={14} /> : <ShieldAlert size={14} />}</span>}
+                            </button>
+                        </li>
+                    );
+                })}
+                {!lista.length && <li className="px-2 py-6 text-center text-[12.5px] text-muted-foreground">Ninguna cámara coincide.</li>}
+            </ul>
+        </aside>
     );
 }

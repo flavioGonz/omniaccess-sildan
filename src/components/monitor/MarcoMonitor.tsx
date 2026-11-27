@@ -93,7 +93,17 @@ export function BarraDelMarco({ children }: { children: React.ReactNode }) {
  * primer toque (en el panel se toca todo el tiempo), y el botón de pantalla completa agranda sólo
  * el marco, no la página con el menú.
  */
-export function MarcoMonitor({ children, puedeDecidir = false, embebido = false, tituloFijo }: { children: React.ReactNode; puedeDecidir?: boolean; embebido?: boolean; /** Embebido: el nombre de la entrada del menú (p. ej. «Monitor CCTV») en vez del de la vista. */ tituloFijo?: string }) {
+export function MarcoMonitor({ children, puedeDecidir = false, embebido = false, tituloFijo, autoOcultar = false }: {
+    children: React.ReactNode; puedeDecidir?: boolean; embebido?: boolean;
+    /** Embebido: el nombre de la entrada del menú (p. ej. «Monitor CCTV») en vez del de la vista. */ tituloFijo?: string;
+    /**
+     * La barra de arriba flota sobre la vista y se esconde sola con el mouse quieto (27/11, Nico, en
+     * el Monitor CCTV: «los controles superiores deben ocultarse automáticamente»). Las cámaras ocupan
+     * todo el alto; la barra vuelve al mover el mouse o tocar una tecla, y no se va mientras el mouse
+     * está encima (o encima de uno de sus menús).
+     */
+    autoOcultar?: boolean;
+}) {
     const raiz = useRef<HTMLDivElement>(null);
     const [titulo, setTitulo] = useState("");
     const [fondo, setFondo] = useState<string | null>(null);
@@ -102,6 +112,7 @@ export function MarcoMonitor({ children, puedeDecidir = false, embebido = false,
     const [ahora, setAhora] = useState(() => Date.now());
     const [lleno, setLleno] = useState(false);
     const [quieto, setQuieto] = useState(false);
+    const [sobreBarra, setSobreBarra] = useState(false);
     /* El silencio se lee del navegador DESPUÉS de montar (26/11): leerlo al crear el estado hacía que
        el servidor dibujara el parlante y el navegador el parlante tachado, y React tiraba el error
        de hidratación #418 en toda pantalla silenciada. */
@@ -193,8 +204,12 @@ export function MarcoMonitor({ children, puedeDecidir = false, embebido = false,
                 {/* Encabezado: barrio, vista, vitalidad y reloj. En "sin datos" se pinta ENTERO de ámbar. */}
                 {/* En el panel (embebido) el encabezado se achica: se lee a 50 cm, no a 4 m, y el panel
                     ya tiene su menú y su marca. El tema es el del panel (claro u oscuro), no el oscuro fijo. */}
-                <header className={cn("shrink-0 flex items-center border-b transition-colors", embebido ? "gap-3 px-4 h-[52px]" : "gap-4 lg:gap-5 px-4 lg:px-6 h-[50px]",
-                    sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : fondo ? "bg-black/20 border-white/15" : "bg-card/60 border-border")}>
+                <header onPointerEnter={() => setSobreBarra(true)} onPointerLeave={() => setSobreBarra(false)}
+                    className={cn("shrink-0 flex items-center border-b transition-colors", embebido ? "gap-3 px-4 h-[52px]" : "gap-4 lg:gap-5 px-4 lg:px-6 h-[50px]",
+                    sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : fondo ? "bg-black/20 border-white/15" : "bg-card/60 border-border",
+                    autoOcultar && !tactil && "absolute inset-x-0 top-0 z-40 backdrop-blur-xl shadow-[var(--sombra-flotante)] transition-[transform,opacity] duration-300",
+                    autoOcultar && !tactil && !sinDatos && !fondo && "bg-card/85",
+                    autoOcultar && !tactil && quieto && !sobreBarra && !sinDatos && "-translate-y-full opacity-0 pointer-events-none")}>
                     <div className={cn("min-w-0 flex items-baseline gap-3", usaBarra && "md:shrink-0 md:max-w-[300px]")}>
                         {embebido ? (
                             <>
