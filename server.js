@@ -1177,6 +1177,23 @@ const handleWebhook = async (req, res, logPrefix) => {
                     if (dev && await estaApagado(dev.id)) {
                         res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", ignored: "apagado" })); return;
                     }
+                    /*
+                     * Una cámara LPR que usa su línea o su zona para DISPARAR la lectura (trackTrigger
+                     * linea/zona) no está avisando una intrusión: está diciendo «pasó un auto» (27/11,
+                     * Nico: «cuando activamos líneas de disparo agrega líneas de intrusión y saltan popups
+                     * de intrusión; pretendemos que sea función LPR»). La regla de la cámara es la misma
+                     * para las dos cosas, así que lo que decide es para qué la usa OmniAccess: el aviso lo
+                     * toma el tracking-worker (por su propio flujo de eventos) y acá no se crea una
+                     * detección. Sólo si a esa cámara se le eligió a propósito un modo de intrusión que
+                     * avisa (camara/doble) sigue siendo también intrusión.
+                     */
+                    const esLpr = dev && String(dev.deviceType).startsWith("LPR");
+                    const disparaLectura = esLpr && (dev.trackTrigger === "linea" || dev.trackTrigger === "zona");
+                    const intrusionElegida = dev && (dev.intrusionModo === "camara" || dev.intrusionModo === "doble");
+                    if (disparaLectura && !intrusionElegida && (genType === "LINECROSS" || genType === "INTRUSION" || genType === "REGION_ENTER" || genType === "REGION_EXIT")) {
+                        await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {});
+                        res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", ignored: "disparo LPR" })); return;
+                    }
                     const det = await prisma.detection.create({ data: { deviceId: dev ? dev.id : null, type: genType, eventType: eventType || null, label: etiquetaCanal || targetClass, timestamp: new Date() } });
                     if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
                     if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, label: targetClass, timestamp: det.timestamp });

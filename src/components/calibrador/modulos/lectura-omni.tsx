@@ -51,7 +51,7 @@ const MODOS: { id: ModoDisparo; t: string; d: string; icono: typeof Minus }[] = 
     { id: "escena", t: "Por cambio de imagen", d: "Lo decide el servidor mirando si la imagen cambió. Anda con cualquier cámara, pero se despierta con sombras: pide un buen recorte.", icono: Gauge },
 ];
 
-export function useLecturaOmni(deviceId: string, activo: boolean, equipo?: { direction: string; trackAcceso: boolean } | null): Modulo {
+export function useLecturaOmni(deviceId: string, activo: boolean, equipo?: { direction: string; trackAcceso: boolean; intrusionModo?: string | null } | null): Modulo {
     // Las lecturas en vivo (components/calibrador/EnVivo): prendidas por defecto, no gastan GPU.
     const [verVivo, setVerVivo] = useState(true);
     const vivo = useLecturasVivas(deviceId, activo && verVivo);
@@ -264,6 +264,13 @@ export function useLecturaOmni(deviceId: string, activo: boolean, equipo?: { dir
         </Seccion>
 
         <Seccion titulo="Qué dispara la lectura" icono={Waypoints} ayuda="Cuándo se le piden cuadros al lector. Se aplica en el momento.">
+            {/* La línea o la zona de la cámara son las mismas reglas que la intrusión: si además se le
+                eligió un modo de intrusión que avisa, cada auto salta también como intrusión (27/11). */}
+            {(modo === "linea" || modo === "zona") && (equipo?.intrusionModo === "camara" || equipo?.intrusionModo === "doble") && (
+                <p className="mb-2 rounded-[10px] bg-amber-500/12 px-3 py-2 text-[11.5px] leading-snug text-amber-700 dark:text-amber-200">
+                    Esta cámara también está como intrusión (modo {equipo.intrusionModo === "doble" ? "Doble" : "Cámara"}): cada cruce va a saltar además como intrusión. Para que sea sólo LPR, en su ficha poné la intrusión en «OmniVision» o sin avisos.
+                </p>
+            )}
             <div className="space-y-1">
                 {MODOS.map((m) => {
                     const puede = m.id === "escena" ? true : m.id === "omnivision" ? !!regla?.enVision : m.id === "linea" ? !!regla?.soportaLinea && !!estado.linea : !!regla?.soportaZona;
