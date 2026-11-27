@@ -260,19 +260,22 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
     const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
     const relCam = useRelectura(ev);
     const chCam = chapaDe(plate, relCam);
+    /* Una interior no decide (27/11): su chapa iba en rojo como si la hubieran rechazado. Va neutra,
+       sin el rótulo «Interior» (toda la columna lo es) ni «RTSP Detect · 90 %», que tapaban el nombre. */
+    const interior = dev.direction === "INTERIOR";
     const inner = (
         <div className={cn("relative rounded-lg overflow-hidden border vid-surface transition-all duration-300", className || "aspect-video", lit ? ring : "border-border")}>
             <SmartThumb src={(() => { const b = img || snap; return rk > 0 ? `${b}${b.includes("?") ? "&" : "?"}rk=${rk}` : b; })()} w={384} className="absolute inset-0 w-full h-full" />
-            <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 pointer-events-none">
+            <div className={cn("absolute top-1.5 left-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 pointer-events-none", interior && "right-1.5 w-fit max-w-[calc(100%-12px)]")}>
                 <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span></span>
-                <span className="text-[9px] font-bold text-white/90 truncate max-w-[130px]">{dev.name}</span>
-                {dev.direction === "INTERIOR" && <span className="rounded bg-violet-500/80 px-1 text-[8px] font-bold uppercase tracking-wide text-white" title="Interior: lee pero no cuenta entradas ni salidas">Interior</span>}
-                {ev && rotuloLectura(ev.details) && <span className="text-[9px] tabular-nums text-white/70">· {rotuloLectura(ev.details)}</span>}
+                <span className={cn("text-[9px] font-bold text-white/90 truncate", interior ? "max-w-[calc(100%-4px)]" : "max-w-[130px]")} title={dev.name}>{dev.name}</span>
+                {!interior && ev && rotuloLectura(ev.details) && <span className="text-[9px] tabular-nums text-white/70">· {rotuloLectura(ev.details)}</span>}
             </div>
             {plate && (
                 <div className="absolute inset-x-1.5 bottom-1.5 z-20 pointer-events-none flex justify-center">
                     <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-white backdrop-blur-sm border shadow-lg",
-                        chCam.omni ? "bg-black/65 border-dashed border-[var(--accion-en-oscuro)]" : anomalous ? "bg-yellow-500/40 border-yellow-300/50 text-yellow-100" : ok ? "bg-emerald-600/80 border-emerald-300/40" : "bg-red-600/80 border-red-300/40")}>
+                        interior && "px-2 text-[12.5px]",
+                        chCam.omni ? "bg-black/65 border-dashed border-[var(--accion-en-oscuro)]" : anomalous ? "bg-yellow-500/40 border-yellow-300/50 text-yellow-100" : interior ? "bg-black/70 border-white/25" : ok ? "bg-emerald-600/80 border-emerald-300/40" : "bg-red-600/80 border-red-300/40")}>
                         {/* Una NO_LEIDA: la chapa que leyó OmniVision, con su destello. */}
                         {chCam.omni ? <>{textoChapa(chCam)}<MarcaOmniVision r={relCam} oscuro tamano="xs" soloIcono /></> : anomalous ? "S/L" : <>{plate}<MarcaVerificacion plate={plate} r={relCam} oscuro tamano="xs" soloIcono /></>}
                     </div>

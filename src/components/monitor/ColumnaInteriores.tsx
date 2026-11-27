@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { EyeOff, Waypoints, Crown, ShieldAlert, Eye } from "lucide-react";
+import { EyeOff, Waypoints, Crown, ShieldAlert, Eye, ArrowDownUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChapaMercosur } from "@/components/tracking/ChapaMercosur";
-import { Cronometro, useTranscurrido } from "@/components/tracking/Cronometro";
+import { leerDuracion, useTranscurrido } from "@/components/tracking/Cronometro";
 import { interioresAdentro } from "@/app/actions/lpr-interiores";
 import type { ChapaAdentro } from "@/lib/lpr-interiores";
 import { rolEtiqueta } from "@/lib/roles-etiquetas";
@@ -20,6 +20,14 @@ import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
  * reloj. La más reciente va grande (la que el guardia acaba de ver pasar por adentro); el resto en
  * mosaico. El reloj corre desde la entrada si se la registró, o desde que una interior la vio —y lo
  * dice—, porque no es lo mismo «adentro hace 2 h» que «la vemos hace 2 h».
+ *
+ * Rediseño (27/11, Nico: «le falta diseño, legibilidad, UX a ese bloque central»). Lo medido en la
+ * captura: la chapa grande «destacada» ocupaba un tercio de la columna para UNA lectura; los nombres
+ * se cortaban («Vanessa Coates · Residente · …»); y el reloj usaba los colores pensados para video
+ * (verde y rosa claros) sobre fondo blanco, ilegibles. Ahora es una LISTA: una fila por chapa, con la
+ * chapa a la izquierda, quién es y de dónde en el medio (el rol como chip) y el tiempo adentro a la
+ * derecha con los tonos de estado del sistema. Arriba, filtros por grupo con su conteo y el orden
+ * (recientes o más tiempo adentro), que es lo que el guardia pregunta: «¿quién lleva horas adentro?».
  *
  * Se pide cada REFRESCO_MS y no por socket: las interiores leen por OmniVision (la pasarela) y no
  * todas sus lecturas llegan como evento al monitor.
@@ -39,9 +47,27 @@ export function ColumnaInteriores({ tiles, camaras, alOcultar, alInvestigar }: {
     }, []);
     useEffect(() => { const t = setTimeout(traer, 0); const iv = setInterval(traer, REFRESCO_MS); return () => { clearTimeout(t); clearInterval(iv); }; }, [traer]);
 
-    const [hero, ...resto] = chapas || [];
+    const [filtro, setFiltro] = useState<Grupo | "todos">("todos");
+    const [orden, setOrden] = useState<"recientes" | "tiempo">("recientes");
+    const conteo = useMemo(() => {
+        const m: Record<Grupo, number> = { residentes: 0, proveedores: 0, sin: 0, listas: 0 };
+        for (const c of chapas || []) m[grupoDe(c)]++;
+        return m;
+    }, [chapas]);
+    const lista = useMemo(() => {
+        const xs = (chapas || []).filter((c) => filtro === "todos" || grupoDe(c) === filtro);
+        return orden === "tiempo" ? [...xs].sort((a, b) => Date.parse(a.desde) - Date.parse(b.desde)) : xs;
+    }, [chapas, filtro, orden]);
+    const FILTROS: { v: Grupo | "todos"; r: string; n: number }[] = [
+        { v: "todos", r: "Todos", n: chapas?.length || 0 },
+        { v: "residentes", r: "Residentes", n: conteo.residentes },
+        { v: "proveedores", r: "Proveedores", n: conteo.proveedores },
+        { v: "sin", r: "Sin padrón", n: conteo.sin },
+        ...(conteo.listas ? [{ v: "listas" as const, r: "En lista", n: conteo.listas }] : []),
+    ];
+
     return (
-        <section className="flex flex-col min-h-0 overflow-hidden bg-[color-mix(in_oklab,var(--color-violet-500,#8b5cf6)_3%,transparent)]">
+        <section className="flex flex-col min-h-0 overflow-hidden bg-background">
             <div className="shrink-0 flex items-center gap-2.5 px-4 h-11 border-b border-border">
                 <span className="w-7 h-7 rounded-md grid place-items-center border border-border bg-muted text-violet-500"><Waypoints size={15} /></span>
                 <h2 className="text-[14px] font-bold">Interiores</h2>
@@ -55,8 +81,26 @@ export function ColumnaInteriores({ tiles, camaras, alOcultar, alInvestigar }: {
                 <div className={cn("grid gap-2", camaras > 1 ? "grid-cols-2" : "grid-cols-1")}>{tiles}</div>
             </div>
 
+            <div className="shrink-0 px-3 pt-3 pb-2 border-b border-border">
+                <div className="flex items-center gap-2">
+                    <p className="flex items-center gap-1.5 text-[12px] font-bold"><Eye size={13} className="text-muted-foreground" /> Adentro ahora</p>
+                    <button type="button" onClick={() => setOrden((o) => (o === "recientes" ? "tiempo" : "recientes"))}
+                        title="Cambiar el orden" className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11.5px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">
+                        <ArrowDownUp size={12} /> {orden === "recientes" ? "Vistas recién" : "Más tiempo adentro"}
+                    </button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Filtrar">
+                    {FILTROS.map((f) => (
+                        <button key={f.v} type="button" role="radio" aria-checked={filtro === f.v} onClick={() => setFiltro(f.v)}
+                            className={cn("inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold transition-colors",
+                                filtro === f.v ? "border-[var(--accion)] bg-[var(--accion)] text-white" : "border-border text-muted-foreground hover:bg-accent hover:text-foreground")}>
+                            {f.r}<span className={cn("tabular-nums", filtro === f.v ? "text-white/80" : "text-muted-foreground/80")}>{f.n}</span>
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-3">
-                <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground"><Eye size={12} /> Adentro ahora · vistas por las interiores</p>
                 {error && <p className="rounded-[10px] border border-dashed border-border p-4 text-center text-[12px] tono-mal">{error}</p>}
                 {!error && chapas && chapas.length === 0 && (
                     <div className="rounded-[14px] border border-dashed border-border p-6 text-center">
@@ -64,24 +108,56 @@ export function ColumnaInteriores({ tiles, camaras, alOcultar, alInvestigar }: {
                         <p className="text-[12.5px] text-muted-foreground">Las interiores no vieron matrículas en las últimas 12 horas.</p>
                     </div>
                 )}
-                {!chapas && !error && <div className="grid grid-cols-2 gap-2">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-24 rounded-[14px] bg-muted animate-pulse" />)}</div>}
-                {hero && (
-                    <div className="grid grid-cols-2 gap-2">
+                {!error && chapas && chapas.length > 0 && lista.length === 0 && <p className="rounded-[10px] border border-dashed border-border p-4 text-center text-[12px] text-muted-foreground">Nadie de ese grupo adentro.</p>}
+                {!chapas && !error && <div className="space-y-1.5">{Array.from({ length: 7 }).map((_, i) => <div key={i} className="h-[58px] rounded-[10px] bg-muted animate-pulse" />)}</div>}
+                {lista.length > 0 && (
+                    <ul className="space-y-1.5">
                         <AnimatePresence initial={false}>
-                            <Tarjeta key={hero.plate} c={hero} grande alInvestigar={alInvestigar} />
-                            {resto.map((c) => <Tarjeta key={c.plate} c={c} alInvestigar={alInvestigar} />)}
+                            {lista.map((c) => <Fila key={c.plate} c={c} alInvestigar={alInvestigar} />)}
                         </AnimatePresence>
-                    </div>
+                    </ul>
                 )}
             </div>
         </section>
     );
 }
 
-function Tarjeta({ c, grande, alInvestigar }: { c: ChapaAdentro; grande?: boolean; alInvestigar?: (plate: string) => void }) {
+type Grupo = "residentes" | "proveedores" | "sin" | "listas";
+/** El grupo de cada chapa: la lista manda (es lo que no puede pasar desapercibido), después el padrón. */
+const grupoDe = (c: ChapaAdentro): Grupo => (c.lista ? "listas" : !c.quien ? "sin" : /PROV/i.test(c.quien.rol) ? "proveedores" : "residentes");
+
+/** El rol como chip: el tono dice el estado (del padrón, proveedor, sin padrón, en lista), no decora. */
+function ChipQuien({ c }: { c: ChapaAdentro }) {
+    if (c.lista) return <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-bold", c.lista === "negra" ? "chip-mal" : "chip-aviso")}><ShieldAlert size={10} />Lista {c.lista}</span>;
+    if (!c.quien) return <span className="inline-flex shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold chip-aviso">No está en el padrón</span>;
+    const prov = /PROV/i.test(c.quien.rol);
+    return <span className={cn("inline-flex shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold", prov ? "chip-info" : "chip-bien")}>{rolEtiqueta(c.quien.rol)}</span>;
+}
+
+/**
+ * Cuánto lleva adentro, con los tonos de ESTADO del sistema (se leen en claro y en oscuro). El
+ * cronómetro de tracking usa colores claros pensados para ir sobre video: en una tarjeta blanca no se
+ * leían. Menos de 15 min, bien; menos de 1 h, info; menos de 3 h, aviso; más, mal.
+ */
+function Estadia({ desde, es }: { desde: string; es: ChapaAdentro["desdeEs"] }) {
+    const ms = useTranscurrido(desde) || 0;
+    const min = ms / 60000;
+    const tono = min < 15 ? "chip-bien" : min < 60 ? "chip-info" : min < 180 ? "chip-aviso" : "chip-mal";
+    return (
+        <span className="flex shrink-0 flex-col items-end gap-0.5" title={es === "entrada" ? "Desde que entró por la barrera" : "Sin entrada registrada: desde que una interior la vio"}>
+            <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[12.5px] font-bold tabular-nums", tono)}>
+                <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />{leerDuracion(ms)}
+            </span>
+            <span className="text-[10px] text-muted-foreground">{es === "entrada" ? "adentro" : "vista"}</span>
+        </span>
+    );
+}
+
+function Fila({ c, alInvestigar }: { c: ChapaAdentro; alInvestigar?: (plate: string) => void }) {
     const visto = Math.max(0, Math.round((useTranscurrido(c.ultima) || 0) / 60000));
+    const hace = visto < 1 ? "recién" : `hace ${visto < 60 ? `${visto} min` : `${Math.floor(visto / 60)} h`}`;
     /**
-     * La tarjeta abre la ficha de su última lectura: la MISMA que un evento LPR (26/11, Nico: «las
+     * La fila abre la ficha de su última lectura: la MISMA que un evento LPR (26/11, Nico: «las
      * que procesa OmniVision, la ventana modal debe ser igual a la de eventos LPR, sólo cambia el
      * tipo de procesamiento; ese drawer no va para eso»). Antes abría el cajón de investigar.
      */
@@ -90,32 +166,30 @@ function Tarjeta({ c, grande, alInvestigar }: { c: ChapaAdentro; grande?: boolea
         timestamp: c.ultima, deviceId: c.deviceId, deviceName: c.camara, decision: null, direction: "INTERIOR", accessType: "PLATE",
         details: `Metodo: RTSP Detect${c.confianza != null ? `, Confianza: ${Math.round(c.confianza * 100)}%` : ""}`,
     } : null;
-    const borde = c.lista === "negra" ? "border-red-500/60 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]" : c.lista === "amarilla" ? "border-yellow-400/60" : "border-border";
-    const tarjeta = (
-        <motion.button type="button" layout initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ type: "spring", bounce: 0, duration: 0.35 }}
-            onClick={evento ? undefined : () => alInvestigar?.(c.plate)} title={evento ? `Ver la lectura de ${c.plate}` : `Investigar ${c.plate}`}
-            className={cn("group relative overflow-hidden rounded-[14px] border bg-card text-left transition-colors hover:border-violet-400/60", borde, grande ? "col-span-2 p-3.5" : "p-2.5")}>
-            {grande && c.foto && (
-                // La escena de la última vez que la vieron, muy atenuada: contexto, no protagonista.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={c.foto} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-[0.13] group-hover:opacity-20" />
-            )}
-            <div className="relative">
-                {/* La chapa a todo el ancho y sin cortarse: «AAC 6351» partida en dos renglones no se lee. */}
-                <ChapaMercosur plate={c.plate} tamano={grande ? "normal" : "chico"} conocida={grande && c.quien ? true : undefined} className="w-full [&_.chapa-texto]:whitespace-nowrap" />
-                {c.lista && <span className={cn("mt-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9.5px] font-bold uppercase", c.lista === "negra" ? "bg-red-500/15 text-red-500" : "bg-yellow-400/20 text-yellow-600")}><ShieldAlert size={10} />Lista {c.lista}</span>}
-                <p className={cn("mt-1.5 truncate font-semibold", grande ? "text-[13.5px]" : "text-[11.5px]")}>
-                    {c.quien ? <>{c.quien.vip && <Crown size={11} className="mr-1 inline text-amber-500" />}{c.quien.nombre}<span className="font-normal text-muted-foreground"> · {rolEtiqueta(c.quien.rol)}{c.quien.lote ? ` · ${c.quien.lote}` : ""}</span></> : <span className="text-muted-foreground">No está en el padrón</span>}
-                </p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    <Cronometro desde={c.desde} tamano={grande ? "normal" : "chico"} etiqueta={c.desdeEs === "entrada" ? "adentro" : "visto hace"} />
-                    <span className={cn("text-muted-foreground tabular-nums", grande ? "text-[11.5px]" : "text-[10px]")}>
-                        {c.camara ? `${c.camara} · ` : ""}{visto < 1 ? "recién" : `hace ${visto < 60 ? `${visto} min` : `${Math.floor(visto / 60)} h`}`}{c.veces > 1 ? ` · ${c.veces} veces` : ""}
+    const borde = c.lista === "negra" ? "border-[color-mix(in_oklab,var(--mal)_55%,transparent)] bg-[color-mix(in_oklab,var(--mal)_5%,var(--card))]" : c.lista === "amarilla" ? "border-[color-mix(in_oklab,var(--aviso)_55%,transparent)]" : "border-border";
+    const nombre = c.quien ? c.quien.nombre : "Sin identificar";
+    const boton = (
+            <button type="button" onClick={evento ? undefined : () => alInvestigar?.(c.plate)} title={`${c.plate} · ${nombre}${c.quien?.lote ? ` · ${c.quien.lote}` : ""}`}
+                className={cn("flex w-full items-center gap-2.5 rounded-[10px] border bg-card px-2.5 py-2 text-left transition-colors hover:border-[color-mix(in_oklab,var(--accion)_50%,transparent)]", borde)}>
+                {/* La chapa siempre del mismo ancho: la columna se lee de arriba abajo como una planilla. */}
+                <ChapaMercosur plate={c.plate} tamano="chico" className="w-[128px] shrink-0 [&_.chapa-texto]:whitespace-nowrap" />
+                <span className="min-w-0 flex-1">
+                    <span className={cn("flex min-w-0 items-center gap-1 text-[13px] font-semibold leading-tight", !c.quien && "text-muted-foreground")}>
+                        {c.quien?.vip && <Crown size={12} className="shrink-0 text-amber-500" />}
+                        <span className="truncate">{nombre}</span>
                     </span>
-                </div>
-                {grande && c.desdeEs === "vista" && <p className="mt-1 text-[10.5px] text-muted-foreground">Sin entrada registrada: el reloj corre desde que una interior la vio.</p>}
-            </div>
-        </motion.button>
+                    <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <ChipQuien c={c} />
+                        {c.quien?.lote && <span className="truncate font-semibold text-foreground/80">{c.quien.lote}</span>}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[10.5px] text-muted-foreground tabular-nums">{hace}{c.veces > 1 ? ` · ${c.veces} veces` : ""}{c.camara ? ` · ${c.camara}` : ""}</span>
+                </span>
+                <Estadia desde={c.desde} es={c.desdeEs} />
+            </button>
     );
-    return evento ? <VisorEventoAcceso event={evento} timeStatus={null}>{tarjeta}</VisorEventoAcceso> : tarjeta;
+    return (
+        <motion.li layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ type: "spring", bounce: 0, duration: 0.3 }}>
+            {evento ? <VisorEventoAcceso event={evento} timeStatus={null}>{boton}</VisorEventoAcceso> : boton}
+        </motion.li>
+    );
 }
