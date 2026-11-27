@@ -205,17 +205,18 @@ export async function PUT(req: NextRequest) {
     if (b?.accion === "recordar") {
         const antes = await leerGoteoGuardado();
         if (b?.valor === false) {
-            await guardarGoteo({ ...antes, recordar: null });
+            await guardarGoteo({ ...antes, recordar: null, recordarA: "pendientes" });
             await auditar(q.sesion, "censo.recordatorio.cancelar", "", true, "");
             return NextResponse.json({ goteo: await estadoDeGoteo() }, { headers: SIN_CACHE });
         }
         if (!origen) return sinOrigen();
         if (!(await hayDesdeDondeMandar())) return NextResponse.json({ error: "No hay desde dónde mandar: cargá la cuenta de correo de cada administración (Administraciones › Correo)." }, { status: 400 });
         const desde = new Date();
-        const cuantos = await contarPorRecordar(desde);
-        if (!cuantos) return NextResponse.json({ error: "No hay a quién recordarle: todos los lotes con la invitación mandada ya cargaron el censo." }, { status: 400 });
-        await guardarGoteo({ ...antes, recordar: desde.toISOString(), ...(antes.activo ? {} : { activo: true, fallas: 0, motivo: null, proximo: null }), origen });
-        await auditar(q.sesion, "censo.recordatorio.empezar", `${cuantos} personas de lotes sin censo`, true, "");
+        const todos = b?.a === "todos";
+        const cuantos = await contarPorRecordar(desde, todos);
+        if (!cuantos) return NextResponse.json({ error: todos ? "No hay a quién reenviarle: ninguna invitación salió todavía." : "No hay a quién recordarle: todos los lotes con la invitación mandada ya cargaron el censo." }, { status: 400 });
+        await guardarGoteo({ ...antes, recordar: desde.toISOString(), recordarA: todos ? "todos" : "pendientes", ...(antes.activo ? {} : { activo: true, fallas: 0, motivo: null, proximo: null }), origen });
+        await auditar(q.sesion, todos ? "censo.reenvio-a-todos.empezar" : "censo.recordatorio.empezar", todos ? `${cuantos} personas` : `${cuantos} personas de lotes sin censo`, true, "");
         return NextResponse.json({ goteo: await estadoDeGoteo(), cuantos }, { headers: SIN_CACHE });
     }
 

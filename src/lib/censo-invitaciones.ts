@@ -150,10 +150,16 @@ export const LOGO_ANCHO = 122;
 export const LOGO_ALTO = 30;
 
 /** El correo que recibe cada lote. Texto y HTML: el texto es el que llega cuando el HTML no se ve. */
-export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, conLogo, recordatorio }: {
+export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, conLogo, recordatorio, novedad, altaDirecta, conManual }: {
     barrio: string; lote: string; url: string; clave: string; nombre?: string;
     /** El segundo correo, a quien no completó (27/11): lo dice en el asunto y arriba de todo. */
     recordatorio?: boolean;
+    /** El segundo correo a un lote que YA cargó (27/11, reenvío a todos): la novedad, no un reclamo. */
+    novedad?: boolean;
+    /** Barrio abierto: lo cargado queda al guardarlo (no «lo revisa la administración»). */
+    altaDirecta?: boolean;
+    /** Va adjunto el manual del residente en PDF (27/11). */
+    conManual?: boolean;
     /** Cuando la persona tiene más de un lote (el código es por persona): todos, como se leen. */
     lotes?: string[];
     /** El logo viaja adjunto con `CID_LOGO`. Sin eso la marca va escrita, que es lo que se ve si la imagen falta. */
@@ -164,8 +170,10 @@ export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, co
     const varios = (lotes?.length || 0) > 1;
     /* «A 2 (4-5) y C 1a (6ª)»: con dos o tres lotes se nombran todos, y el correo lo dice en plural. */
     if (varios) lote = `${lotes!.slice(0, -1).join(", ")} y ${lotes![lotes!.length - 1]}`;
-    const asunto = `${recordatorio ? "Recordatorio · " : ""}Censo de vehículos · ${varios ? "lotes" : "lote"} ${lote}`;
-    const aviso = recordatorio ? `Te escribimos de nuevo porque ${varios ? "tus lotes todavía no tienen" : "tu lote todavía no tiene"} el censo completo.` : "";
+    const asunto = `${recordatorio ? "Recordatorio · " : novedad ? "Novedad · " : ""}Censo de vehículos · ${varios ? "lotes" : "lote"} ${lote}`;
+    const aviso = recordatorio ? `Te escribimos de nuevo porque ${varios ? "tus lotes todavía no tienen" : "tu lote todavía no tiene"} el censo completo.`
+        : novedad ? `Gracias: ${varios ? "tus lotes ya tienen" : "tu lote ya tiene"} el censo cargado. Ahora podés ver y corregir lo que cargaste.` : "";
+    const tonoAviso = novedad ? "background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46" : "background:#fff7ed;border:1px solid #fed7aa;color:#9a3412";
     const texto = [
         ...(aviso ? [aviso, ``] : []),
         `${quien ? `${quien}este` : "Este"} es el registro de vehículos ${varios ? `de tus lotes ${lote}` : `del lote ${lote}`} de ${casa}.`,
@@ -177,7 +185,13 @@ export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, co
         `Si te pide la clave, es: ${clave}`,
         ``,
         `Cargás las matrículas que entran a tu casa y quién te visita seguido. Son dos minutos y lo`,
-        `hacés una sola vez. La administración revisa lo que cargues antes de darlo de alta.`,
+        `hacés una sola vez. ${altaDirecta ? "Lo que cargás queda en el padrón al guardarlo." : "La administración revisa lo que cargues antes de darlo de alta."}`,
+        ``,
+        `NUEVO: lo que cargaste se puede ver y corregir.`,
+        `Si ya completaste el censo, entrá por el mismo enlace: ves lo que cargaste y sumás lo que falte.`,
+        `Desde tu portal del barrio (lo abrís desde el censo) corregís o eliminás tus matrículas,`,
+        `tus proveedores y tus datos, e invitás visitas con QR.`,
+        ...(conManual ? [``, `Te adjuntamos el Manual del residente (PDF), con cada paso explicado.`] : []),
         ``,
         `Este enlace es personal: no lo compartas.`,
         ``,
@@ -199,7 +213,7 @@ export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, co
   </tr></table>
 </td></tr>
 <tr><td style="padding:20px 24px 0">
-  ${aviso ? `<p style="margin:0 0 12px;display:inline-block;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:8px;padding:6px 10px;font-size:13px;font-weight:600">${escaparHtml(aviso)}</p>` : ""}
+  ${aviso ? `<p style="margin:0 0 12px;display:inline-block;${tonoAviso};border-radius:8px;padding:6px 10px;font-size:13px;font-weight:600">${escaparHtml(aviso)}</p>` : ""}
   <h1 style="margin:0;font-size:22px;line-height:1.2;color:#0a0e14;letter-spacing:-.02em">Censo de vehículos · ${varios ? "lotes" : "lote"} ${escaparHtml(lote)}</h1>
   <p style="margin:12px 0 0;font-size:15px;line-height:1.55;color:#334155">
     ${quien ? `${escaparHtml(quien)}cargá` : "Cargá"} las matrículas que entran a tu casa y quién te visita seguido.
@@ -207,7 +221,17 @@ export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, co
   </p>
 </td></tr>
 <tr><td style="padding:20px 24px 0">
-  <a href="${escaparHtml(url)}" style="display:inline-block;background:#1f5eff;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:13px 22px;border-radius:10px">Cargar mis vehículos</a>
+  <a href="${escaparHtml(url)}" style="display:inline-block;background:#1f5eff;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:13px 22px;border-radius:10px">Cargar o ver mis datos</a>
+</td></tr>
+<tr><td style="padding:16px 24px 0">
+  <div style="border:1px solid #c7d7fe;border-radius:10px;padding:12px 14px;background:#eef3ff">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#1f5eff">Nuevo · lo que cargaste se puede corregir</div>
+    <p style="margin:6px 0 0;font-size:14px;line-height:1.5;color:#1e293b">
+      ¿Ya completaste el censo? Entrá por el mismo enlace: ves lo que cargaste y sumás lo que falte.
+      Desde tu <b>portal del barrio</b> (lo abrís desde el censo) corregís o eliminás tus matrículas, tus proveedores y tus datos, e invitás visitas con QR.
+    </p>
+    ${conManual ? `<p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:#475569">Te adjuntamos el <b>Manual del residente</b> (PDF), con cada paso explicado.</p>` : ""}
+  </div>
 </td></tr>
 <tr><td style="padding:16px 24px 0">
   <div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;background:#f8fafc">
@@ -215,8 +239,7 @@ export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, co
     <div style="font-size:21px;font-weight:800;letter-spacing:.12em;color:#0a0e14;margin-top:4px">${escaparHtml(clave)}</div>
   </div>
   <p style="margin:12px 0 0;font-size:12.5px;line-height:1.5;color:#64748b">
-    Este enlace es personal, para ${varios ? "tus lotes" : "el lote"} ${escaparHtml(lote)}: no lo compartas. Lo que cargues lo revisa la
-    administración antes de darlo de alta.
+    Este enlace es personal, para ${varios ? "tus lotes" : "el lote"} ${escaparHtml(lote)}: no lo compartas. ${altaDirecta ? "Lo que cargues queda en el padrón al guardarlo." : "Lo que cargues lo revisa la administración antes de darlo de alta."}
   </p>
 </td></tr>
 <tr><td style="padding:18px 24px 24px">

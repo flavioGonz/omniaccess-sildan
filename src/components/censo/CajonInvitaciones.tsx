@@ -133,18 +133,18 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
     }
 
     const [recordando, setRecordando] = useState(false);
-    const [seguroRecordar, setSeguroRecordar] = useState(false);
+    const [seguroRecordar, setSeguroRecordar] = useState<null | "pendientes" | "todos">(null);
     /** El recordatorio a los que no completaron (27/11): sale por el envío de a poco, detrás de lo que falte. */
-    async function recordar(valor: boolean) {
+    async function recordar(valor: boolean, a: "pendientes" | "todos" = "pendientes") {
         setRecordando(true);
         try {
-            const r = await fetch("/api/censo/invitaciones", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ accion: "recordar", valor }) });
+            const r = await fetch("/api/censo/invitaciones", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ accion: "recordar", valor, a }) });
             const j = await r.json();
             if (!r.ok) { toast.error({ title: "No se pudo", description: j?.error }); return; }
             setD((v) => (v ? { ...v, goteo: j.goteo } : v));
-            setSeguroRecordar(false);
+            setSeguroRecordar(null);
             toast.success(valor
-                ? { title: `Recordatorio en marcha: ${j.cuantos} ${j.cuantos === 1 ? "persona" : "personas"}`, description: "Sale de a poco, dentro del horario y con el tope de cada casilla. Podés cerrar esta ventana: sigue solo." }
+                ? { title: `${a === "todos" ? "Reenvío a todos" : "Recordatorio"} en marcha: ${j.cuantos} ${j.cuantos === 1 ? "persona" : "personas"}`, description: "Sale de a poco, dentro del horario y con el tope de cada casilla. Podés cerrar esta ventana: sigue solo." }
                 : { title: "Recordatorio cancelado", description: "Los que ya lo recibieron, lo recibieron; al resto no le sale." });
         } catch { toast.error({ title: "No se pudo" }); }
         finally { setRecordando(false); }
@@ -346,34 +346,43 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                     })()}
                                 </CajonSeccion>
 
-                                <CajonSeccion titulo="Recordar a los que no completaron" icono={BellRing} compacta
-                                    ayuda="Les manda de nuevo su enlace, con «Recordatorio» en el asunto, a las personas de los lotes que recibieron la invitación y donde nadie cargó el censo todavía. Si alguien del lote ya cargó, ese lote no recibe nada. Sale de a poco como las invitaciones, con el mismo horario y el tope de cada casilla.">
+                                <CajonSeccion titulo="Volver a escribirles" icono={BellRing} compacta
+                                    ayuda="Les manda de nuevo su enlace y el manual del residente. A los lotes que todavía no cargaron les llega con «Recordatorio»; con «Reenviar a todos», los que ya cargaron reciben la novedad de que pueden ver y corregir lo que cargaron. Sale de a poco como las invitaciones, con el mismo horario y el tope de cada casilla.">
                                     {(() => {
                                         const g = d.goteo;
                                         if (g.recordar) return (
                                             <div className="rounded-[10px] border border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_7%,transparent)] p-3.5">
                                                 <p className="flex items-center gap-2 text-[13.5px] font-bold">
                                                     <span className={cn("h-2 w-2 shrink-0 rounded-full", g.activo ? "bg-[var(--bien)] animate-pulse" : "bg-[var(--aviso)]")} />
-                                                    {g.activo ? "Recordatorio en marcha" : "Recordatorio en pausa"}
-                                                    <span className="ml-auto text-[12px] font-semibold tabular-nums text-muted-foreground">quedan {g.porRecordar}</span>
+                                                    {g.recordarA === "todos" ? "Reenvío a todos" : "Recordatorio a los que no completaron"} {g.activo ? "en marcha" : "en pausa"}
+                                                    <span className="ml-auto text-[12px] font-semibold tabular-nums text-muted-foreground">quedan {g.recordarA === "todos" ? g.porRecordarTodos : g.porRecordar}</span>
                                                 </p>
                                                 <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">Pedido el {diaSemana(g.recordar)} a las {hora(g.recordar)}. {g.activo ? "Sale detrás de las invitaciones que falten." : "Ponelo en marcha con «Enviar de a poco»."}</p>
-                                                <button type="button" onClick={() => recordar(false)} disabled={recordando} className="mt-2 text-[12px] font-semibold text-muted-foreground hover:text-[var(--mal)] hover:underline disabled:opacity-50">Cancelar el recordatorio</button>
+                                                <button type="button" onClick={() => recordar(false)} disabled={recordando} className="mt-2 text-[12px] font-semibold text-muted-foreground hover:text-[var(--mal)] hover:underline disabled:opacity-50">Cancelar</button>
                                             </div>
                                         );
-                                        if (!g.porRecordar) return <p className="rounded-[10px] border border-dashed border-border p-3.5 text-[12.5px] text-muted-foreground">Nadie pendiente: todos los lotes que recibieron la invitación ya cargaron el censo.</p>;
+                                        if (!g.porRecordarTodos) return <p className="rounded-[10px] border border-dashed border-border p-3.5 text-[12.5px] text-muted-foreground">Todavía no salió ninguna invitación: primero el envío de a poco.</p>;
+                                        const opciones = [
+                                            { a: "pendientes" as const, n: g.porRecordar, titulo: "Recordar a los que no completaron", detalle: "Lotes que recibieron la invitación y donde nadie cargó todavía. Les llega con «Recordatorio»." },
+                                            { a: "todos" as const, n: g.porRecordarTodos, titulo: "Reenviar a todos", detalle: "Todos los que recibieron la invitación. Los que ya cargaron reciben la novedad: pueden ver y corregir lo que cargaron." },
+                                        ];
                                         return (
-                                            <div className="rounded-[10px] border border-border p-3.5">
-                                                <p className="text-[13.5px] font-bold"><span className="tabular-nums">{g.porRecordar}</span> {g.porRecordar === 1 ? "persona recibió la invitación y su lote todavía no cargó" : "personas recibieron la invitación y sus lotes todavía no cargaron"} el censo.</p>
-                                                {!seguroRecordar ? (
-                                                    <Button className="mt-2.5" onClick={() => setSeguroRecordar(true)} disabled={!d.correoListo || recordando}><BellRing size={14} /> Recordarles a {g.porRecordar}</Button>
-                                                ) : (
-                                                    <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                                                        <Button onClick={() => recordar(true)} disabled={recordando}>{recordando ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Sí, mandar el recordatorio</Button>
-                                                        <Button variant="outline" onClick={() => setSeguroRecordar(false)} disabled={recordando}>No</Button>
-                                                        <span className="w-full text-[11.5px] text-muted-foreground">Sale de a poco, desde la casilla de cada administración{g.activo ? ", detrás de las invitaciones que falten" : ""}.</span>
+                                            <div className="space-y-2">
+                                                {opciones.map((o) => (
+                                                    <div key={o.a} className="rounded-[10px] border border-border p-3.5">
+                                                        <p className="flex items-center gap-2 text-[13.5px] font-bold">{o.titulo}<span className="ml-auto text-[12px] font-semibold tabular-nums text-muted-foreground">{o.n} {o.n === 1 ? "persona" : "personas"}</span></p>
+                                                        <p className="mt-1 text-[12px] leading-snug text-muted-foreground">{o.detalle}</p>
+                                                        {seguroRecordar !== o.a ? (
+                                                            <Button className="mt-2.5" variant={o.a === "todos" ? "outline" : undefined} onClick={() => setSeguroRecordar(o.a)} disabled={!d.correoListo || recordando || !o.n}><BellRing size={14} /> {o.a === "todos" ? `Reenviar a ${o.n}` : `Recordarles a ${o.n}`}</Button>
+                                                        ) : (
+                                                            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                                                                <Button onClick={() => recordar(true, o.a)} disabled={recordando}>{recordando ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Sí, mandarlo</Button>
+                                                                <Button variant="outline" onClick={() => setSeguroRecordar(null)} disabled={recordando}>No</Button>
+                                                                <span className="w-full text-[11.5px] text-muted-foreground">Sale de a poco, desde la casilla de cada administración, con el manual adjunto{g.activo ? ", detrás de las invitaciones que falten" : ""}.</span>
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                )}
+                                                ))}
                                             </div>
                                         );
                                     })()}

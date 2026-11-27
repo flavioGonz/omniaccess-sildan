@@ -68,6 +68,8 @@ export type Envio = {
     para: string; copia?: string; asunto: string; texto: string; html?: string;
     /** Imágenes que el HTML cita como `cid:<cid>` (el logo). Viajan adentro del correo, no como adjunto a bajar. */
     enLinea?: { cid: string; nombre: string; contenido: Buffer }[];
+    /** Archivos adjuntos para bajar (27/11: el manual del residente en el correo del censo). */
+    adjuntos?: { nombre: string; contenido: Buffer; tipo?: string }[];
 };
 
 /**
@@ -110,7 +112,10 @@ export async function enviarCorreo(e: Envio, o: { desde?: CuentaCorreo | null; s
         const ocultas = limpias([...(o.sinCopia ? [] : [await copiaFija()]), o.desde?.cuenta]).filter((x) => !visibles.includes(x));
         await t.sendMail({
             from: remitente, to: e.para, cc: visibles.join(", ") || undefined, bcc: ocultas.join(", ") || undefined, subject: e.asunto, text: e.texto, html: e.html,
-            attachments: e.enLinea?.map((a) => ({ filename: a.nombre, content: a.contenido, cid: a.cid, contentDisposition: "inline" as const })),
+            attachments: [
+                ...(e.enLinea || []).map((a) => ({ filename: a.nombre, content: a.contenido, cid: a.cid, contentDisposition: "inline" as const })),
+                ...(e.adjuntos || []).map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.tipo, contentDisposition: "attachment" as const })),
+            ],
         });
         return { ok: true, desde: cuenta };
     } catch (err) {

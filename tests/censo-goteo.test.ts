@@ -86,3 +86,9 @@ test("el recordatorio se guarda como la hora en que se pidió, y lo que no es fe
     assert.equal(leerGoteo(JSON.stringify({ recordar: "mañana" })).recordar, null);
     assert.equal(leerGoteo(JSON.stringify({ recordar: 5 })).recordar, null);
 });
+
+test("el segundo correo va a «pendientes» salvo que se pida «todos» (27/11)", () => {
+    assert.equal(GOTEO_DEFECTO.recordarA, "pendientes");
+    assert.equal(leerGoteo(JSON.stringify({ recordarA: "todos" })).recordarA, "todos");
+    assert.equal(leerGoteo(JSON.stringify({ recordarA: "cualquiera" })).recordarA, "pendientes");
+});

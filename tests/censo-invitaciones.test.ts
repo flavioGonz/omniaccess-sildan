@@ -122,3 +122,23 @@ test("el recordatorio lo dice en el asunto y arriba del correo; la invitación n
     assert.doesNotMatch(i.asunto, /Recordatorio/);
     assert.doesNotMatch(i.html, /Te escribimos de nuevo/);
 });
+
+test("el correo dice que lo cargado se puede ver y corregir, y que va el manual adjunto (27/11)", () => {
+    const base = { barrio: "Barrio", lote: "B4", url: "https://x.uy/registro/AB", clave: "AB" };
+    const c = correoDeInvitacion({ ...base, altaDirecta: true, conManual: true });
+    assert.match(c.texto, /se puede ver y corregir/);
+    assert.match(c.texto, /Manual del residente/);
+    assert.match(c.html, /lo que cargaste se puede corregir/);
+    assert.match(c.texto, /queda en el padrón al guardarlo/);
+    assert.doesNotMatch(c.texto, /revisa lo que cargues/);
+    const cerrado = correoDeInvitacion(base);
+    assert.match(cerrado.texto, /revisa lo que cargues/);
+    assert.doesNotMatch(cerrado.texto, /Manual del residente/);
+});
+
+test("al lote que ya cargó le llega la novedad, no el recordatorio (27/11)", () => {
+    const c = correoDeInvitacion({ barrio: "B", lote: "B4", url: "https://x.uy/r/AB", clave: "AB", novedad: true });
+    assert.match(c.asunto, /^Novedad · Censo de vehículos · lote B4$/);
+    assert.match(c.texto, /ya tiene el censo cargado/);
+    assert.doesNotMatch(c.texto, /todavía no tiene/);
+});

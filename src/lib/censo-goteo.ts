@@ -44,9 +44,15 @@ export type Goteo = {
      * su `enviadoAt` pasa a ser posterior y deja de tocarle: no hace falta otra columna. Null: no hay.
      */
     recordar: string | null;
+    /**
+     * A quiénes va ese segundo correo: «pendientes» (lotes donde nadie cargó, con «Recordatorio») o
+     * «todos» (27/11, Nico: «vamos a enviar masivamente de nuevo a todos»): los que ya cargaron
+     * reciben la novedad de que pueden ver y corregir lo cargado, y los que no, el recordatorio.
+     */
+    recordarA: "pendientes" | "todos";
 };
 
-export const GOTEO_DEFECTO: Goteo = { activo: false, cadaSeg: 60, desde: 9, hasta: 20, proximo: null, fallas: 0, motivo: null, origen: "", frenadas: {}, recordar: null };
+export const GOTEO_DEFECTO: Goteo = { activo: false, cadaSeg: 60, desde: 9, hasta: 20, proximo: null, fallas: 0, motivo: null, origen: "", frenadas: {}, recordar: null, recordarA: "pendientes" };
 /** Los ritmos que se ofrecen. Más rápido que uno cada 30 segundos ya no es «de a poco». */
 export const RITMOS: { seg: number; rotulo: string }[] = [
     { seg: 30, rotulo: "Uno cada 30 segundos" }, { seg: 60, rotulo: "Uno por minuto" }, { seg: 120, rotulo: "Uno cada 2 minutos" }, { seg: 300, rotulo: "Uno cada 5 minutos" },
@@ -71,6 +77,7 @@ export function leerGoteo(v: unknown): Goteo {
         frenadas: Object.fromEntries(Object.entries(g.frenadas && typeof g.frenadas === "object" ? (g.frenadas as Record<string, unknown>) : {})
             .filter(([k, v]) => k.includes("@") && typeof v === "string" && !Number.isNaN(Date.parse(v))) as [string, string][]),
         recordar: typeof g.recordar === "string" && !Number.isNaN(Date.parse(g.recordar)) ? g.recordar : null,
+        recordarA: g.recordarA === "todos" ? "todos" : "pendientes",
     };
 }
 

@@ -223,11 +223,16 @@ export function Formulario({ centro, invitacion, cargas = [], previa, portal, al
                     <motion.div key={paso} custom={sentido} className="censo-paso"
                         initial={{ opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -22 * sentido }}
                         transition={RESORTE}>
+                        {/* Lo cargado se puede ver y corregir (27/11, Nico: «que quede claro que se pueden
+                            modificar los datos ingresados previamente»): el censo suma, el portal corrige. */}
                         {paso === 0 && portal && (
-                            <a href={portal} className="mb-4 flex items-center gap-3 rounded-[10px] border border-border bg-card px-3.5 py-3">
-                                <Home size={18} className="shrink-0 text-[var(--accion)]" />
-                                <span className="min-w-0 flex-1 text-[13px] leading-snug"><b>Tu portal del barrio</b><span className="text-muted-foreground"> · invitá visitas con QR y mirá tus matrículas.</span></span>
-                                <ArrowUpRight size={16} className="shrink-0 text-muted-foreground" />
+                            <a href={portal} className={cn("mb-4 flex items-center gap-3 rounded-[10px] border border-[color-mix(in_oklab,var(--accion)_35%,transparent)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)] px-3.5 py-3", PULSABLE)}>
+                                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[var(--accion)] text-white"><Home size={17} /></span>
+                                <span className="min-w-0 flex-1 text-[13px] leading-snug">
+                                    <b className="block">{cargas.some((c) => c.suya) ? "Lo que cargaste está en tu portal" : "Tu portal del barrio"}</b>
+                                    <span className="text-muted-foreground">{cargas.some((c) => c.suya) ? "Ahí lo ves y lo corregís o eliminás: matrículas, proveedores y tus datos." : "Después de cargar, ahí ves lo que cargaste, lo corregís e invitás visitas con QR."}</span>
+                                </span>
+                                <ArrowUpRight size={16} className="shrink-0 text-[var(--accion)]" />
                             </a>
                         )}
                         {reemplaza && (
@@ -236,7 +241,7 @@ export function Formulario({ centro, invitacion, cargas = [], previa, portal, al
                                 <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">Está todo lo que mandaste. Agregá o cambiá sólo lo que falte y volvé a enviar: reemplaza a la anterior, no hace falta cargar todo de nuevo.</p>
                             </div>
                         )}
-                        {paso < 2 && cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente")).length > 0 && <YaCargaron altaDirecta={altaDirecta} cargas={cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente"))} />}
+                        {paso < 2 && cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente")).length > 0 && <YaCargaron altaDirecta={altaDirecta} portal={portal} cargas={cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente"))} />}
                         {paso === 0 && <PasoCasa f={f} set={set} centro={centro} delPlano={ubicacionLote} loteFijo={!!invitacion} lotes={invitacion?.lotes} alElegirLote={(l) => setF((v) => ({ ...v, lote: l, tenencia: tenenciaDe(l) }))}
                             eligio={eligio} padron={invitacion?.padron}
                             alElegirTenencia={(t) => {
@@ -437,7 +442,7 @@ const ENTRADA = "w-full h-12 rounded-[10px] border border-border bg-card px-3.5 
  * pasos, que es donde se decide qué cargar. Sin teléfonos ni correos: con el nombre alcanza para
  * saber quién fue, y el resto no hace falta para no repetir.
  */
-function YaCargaron({ cargas, altaDirecta }: { cargas: CargaDelLote[]; altaDirecta?: boolean }) {
+function YaCargaron({ cargas, altaDirecta, portal }: { cargas: CargaDelLote[]; altaDirecta?: boolean; portal?: string | null }) {
     return (
         <div className="mb-5 rounded-[10px] border border-border bg-card p-3.5">
             <p className="text-[14px] font-bold">Ya cargaron en este lote</p>
@@ -466,6 +471,7 @@ function YaCargaron({ cargas, altaDirecta }: { cargas: CargaDelLote[]; altaDirec
                     </li>
                 ))}
             </ul>
+            {portal && <a href={portal} className="mt-3 inline-flex items-center gap-1.5 border-t border-border pt-2.5 text-[13px] font-semibold text-[var(--accion)]"><ArrowUpRight size={14} /> Corregir o eliminar lo que ya está cargado, en tu portal</a>}
         </div>
     );
 }
@@ -935,7 +941,7 @@ function Gracias({ marca, lote, vehiculos, servicios, ubicado, alCorregir, porta
                 {portal && (
                     <a href={portal} className={cn("mx-auto mt-6 flex max-w-[460px] items-center gap-3 rounded-[14px] bg-[var(--accion)] p-4 text-left text-white", PULSABLE)}>
                         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-white/15"><Home size={20} /></span>
-                        <span className="min-w-0 flex-1"><span className="block text-[15px] font-bold">Entrá a tu portal</span><span className="block text-[12.5px] opacity-90">Invitá visitas con QR y mirá tus matrículas. Guardalo: es tuyo.</span></span>
+                        <span className="min-w-0 flex-1"><span className="block text-[15px] font-bold">Entrá a tu portal</span><span className="block text-[12.5px] opacity-90">Ahí ves lo que cargaste y lo corregís o eliminás cuando quieras, e invitás visitas con QR. Guardalo: es tuyo.</span></span>
                         <ArrowUpRight size={18} />
                     </a>
                 )}

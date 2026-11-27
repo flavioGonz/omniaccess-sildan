@@ -194,6 +194,20 @@ function Inicio({ host, datos, items, alIr, alInvitar, alQr }: { host: PortalHos
                 </button>
             </div>
 
+            {/* Lo cargado se ve y se corrige acá (27/11, Nico: «que quede claro que se pueden modificar
+                los datos ingresados previamente»), con el manual a mano. */}
+            {datos.lote && (
+                <section className="mt-4 rounded-[14px] border border-[color-mix(in_oklab,var(--accion)_30%,transparent)] bg-[color-mix(in_oklab,var(--accion)_5%,transparent)] p-4">
+                    <p className="flex items-center gap-2 text-[14.5px] font-bold"><Pencil size={15} className="text-[var(--accion)]" /> Lo que cargaste, lo corregís acá</p>
+                    <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{datos.altaDirecta ? "Tus matrículas, tus proveedores y tus datos: tocá «Editar» para corregirlos o eliminarlos. Los cambios quedan al guardar." : "Tus matrículas, tus proveedores y tus datos. Sumar o sacar algo es un pedido que aprueba la administración."}</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button type="button" onClick={() => alIr("vehiculos")} className={cn("h-10 rounded-[10px] border border-border bg-background text-[13px] font-semibold inline-flex items-center justify-center gap-1.5", PULSABLE)}><Car size={15} /> Vehículos · {datos.chapas.filter((c) => c.mia).length}</button>
+                        <button type="button" onClick={() => alIr("lote")} className={cn("h-10 rounded-[10px] border border-border bg-background text-[13px] font-semibold inline-flex items-center justify-center gap-1.5", PULSABLE)}><Users size={15} /> Mi lote · {datos.servicios.length} {datos.servicios.length === 1 ? "proveedor" : "proveedores"}</button>
+                    </div>
+                    <a href="/manual-residente-omniaccess.pdf" target="_blank" rel="noopener" className="mt-2.5 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--accion)]"><Download size={14} /> Manual del residente (PDF)</a>
+                </section>
+            )}
+
             {tareas.length > 0 && (
                 <section className="mt-6">
                     <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Para vos</h2>
