@@ -366,7 +366,7 @@ function Vehiculos({ token, datos, alPedir, alEditar, alCambiar }: { token: stri
                     <ul className="space-y-2">{delLote.map((c) => (
                         <li key={c.chapa} className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5">
                             <Chapa p={c.chapa} />
-                            <span className="min-w-0 flex-1 text-[12.5px] text-muted-foreground"><span className="block truncate">de {c.de}</span>{c.uso && <span className="block truncate font-semibold text-foreground">{c.uso}</span>}{(c.marca || c.color) && <span className="block truncate">{[c.marca, c.color].filter(Boolean).join(" · ")}</span>}</span>
+                            <span className="min-w-0 flex-1 text-[12.5px] text-muted-foreground"><span className="block truncate">de {c.de}</span>{c.uso && <span className="block font-semibold leading-snug text-foreground [overflow-wrap:anywhere]">{c.uso}</span>}{(c.marca || c.color) && <span className="block truncate">{[c.marca, c.color].filter(Boolean).join(" · ")}</span>}</span>
                             {datos.altaDirecta && datos.soyDueno && <BotonEditar alTocar={() => alEditar(c)} />}
                         </li>
                     ))}</ul>
@@ -396,7 +396,7 @@ function Vehiculos({ token, datos, alPedir, alEditar, alCambiar }: { token: stri
 function Vehiculo({ c }: { c: ChapaDelLote }) {
     const que = [c.marca, c.color].filter(Boolean).join(" · ");
     /* Para qué es va primero cuando no es de la casa: «Proveedor: jardinero» dice más que «sin marca». */
-    if (c.uso) return <><span className="block truncate font-semibold">{c.uso}</span>{que && <span className="block truncate text-muted-foreground">{que}</span>}</>;
+    if (c.uso) return <><span className="block font-semibold leading-snug [overflow-wrap:anywhere]">{c.uso}</span>{que && <span className="block truncate text-muted-foreground">{que}</span>}</>;
     return que ? <span className="block truncate font-semibold">{que}</span> : <span className="block text-muted-foreground">Sin marca ni color</span>;
 }
 
