@@ -151,7 +151,9 @@ export default function UnitsPage() {
         try {
             const r = await crearUnidadesDesdeLotes();
             if (!r.ok) { toast.error({ title: "No se pudieron crear", description: r.error }); return; }
-            toast.success({ title: `${r.creadas} unidades creadas`, description: r.vinculadas ? `${r.vinculadas} ya existían y se vincularon al lote.` : undefined });
+            // Con padrón por administraciones no se crean unidades: los dibujos se atan a sus lotes (28/11).
+            if (r.sinLote !== undefined) toast.success({ title: `${r.vinculadas} ${r.vinculadas === 1 ? "dibujo atado" : "dibujos atados"} a su lote del padrón`, description: r.sinLote ? `${r.sinLote} quedaron sin atar: no hay un lote con ese código, o hay más de uno. Atalos a mano desde el mapa. No se creó ninguna unidad.` : "No se creó ninguna unidad." });
+            else toast.success({ title: `${r.creadas} unidades creadas`, description: r.vinculadas ? `${r.vinculadas} ya existían y se vincularon al lote.` : undefined });
             await Promise.all([loadUnits(), cargarLotes()]);
         } finally { setCreandoDesdeMapa(false); }
     };
@@ -250,8 +252,8 @@ export default function UnitsPage() {
                 <div className="flex items-center gap-2">
                     {lotesSinUnidad > 0 && (
                         <Button onClick={crearDesdeMapa} disabled={creandoDesdeMapa} size="sm" variant="outline" className="h-9 px-4 rounded-md font-semibold text-[12px] gap-1.5"
-                            title="Crea una unidad (casa o lote) por cada lote dibujado en el mapa que todavía no tiene una, y la deja vinculada.">
-                            <MapIcon size={15} /> {creandoDesdeMapa ? "Creando…" : `Crear ${lotesSinUnidad} desde el mapa`}
+                            title="Hay dibujos en el mapa que no están atados a ningún lote. Si el complejo ya tiene su padrón por administraciones, se atan al lote que tenga ese código y no se crea nada; si no tiene padrón, se crea una unidad por cada dibujo.">
+                            <MapIcon size={15} /> {creandoDesdeMapa ? "Resolviendo…" : `${lotesSinUnidad} ${lotesSinUnidad === 1 ? "dibujo" : "dibujos"} del mapa sin lote`}
                         </Button>
                     )}
                     <Button onClick={() => handleCreateNew()} size="sm" className="accion h-9 px-5 rounded-md font-semibold text-[12px] gap-1.5">

@@ -9,6 +9,7 @@ import { coordenadasDeTexto, latLngAPlano, leerPlanoLotes, planoALatLng } from "
 import { cambiarCodigoDeInvitacion, type CodigoCambiado } from "@/lib/censo-codigo";
 import { limpiarChapa } from "@/lib/lote-cambios";
 import { rotuloServicio } from "@/lib/servicios-lote";
+import { genteDelLote } from "@/lib/gente-de-lote";
 import { anotarEnLote } from "@/lib/lote-auditoria";
 import { copiaFija, enviarCorreo, limpiarClaveDeAplicacion, probarCuenta } from "@/lib/correo";
 import { correoSirve, nuevaClave } from "@/lib/censo-invitaciones";
@@ -54,6 +55,8 @@ export async function administraciones(): Promise<ResumenAdministracion[]> {
         prisma.userUnidad.findMany({ select: { userId: true, unitId: true } }),
         prisma.invitacionCenso.findMany({ where: { sitio: "", unitId: { not: null } }, select: { unitId: true, enviadoAt: true, usadoAt: true } }),
     ]);
+    /* También cuenta quien tiene el lote como principal sin vínculo (lib/gente-de-lote): es lo que muestra el cajón. */
+    for (const p of await prisma.user.findMany({ where: { unitId: { not: null } }, select: { id: true, unitId: true } })) vinculos.push({ userId: p.id, unitId: p.unitId! });
     const adminDeUnidad = new Map(unidades.map((u) => [u.id, u.administracionId!]));
     /* El censo es por LOTE desde el 25/11: se cuentan los lotes con código, no las personas. */
     const inv = new Map(invitaciones.map((i) => [i.unitId!, i]));
@@ -99,7 +102,7 @@ export async function detalleAdministracion(id: string): Promise<DetalleAdminist
         where: { id },
         include: {
             contactos: { orderBy: [{ orden: "asc" }, { createdAt: "asc" }] }, servicios: { orderBy: [{ rubro: "asc" }, { createdAt: "asc" }] },
-            unidades: { include: { vinculos: { include: { user: { select: { id: true, name: true, email: true, phone: true } } } } } },
+            unidades: { include: { vinculos: { include: { user: { select: { id: true, name: true, email: true, phone: true } } } }, users: { select: { id: true, name: true, email: true, phone: true } } } },
         },
     });
     if (!a) return null;
@@ -116,7 +119,7 @@ export async function detalleAdministracion(id: string): Promise<DetalleAdminist
         lotes: lotes.map((u) => ({
             id: u.id, nombre: u.name, codigo: u.lot || u.name, manzana: u.manzana, edificio: u.edificio, areaM2: u.areaM2, titular: u.titular, situacion: u.situacion, observaciones: u.description,
             planoX: u.planoX, planoY: u.planoY, coordenadas: u.coordinates?.trim() || null,
-            personas: u.vinculos.map((v) => ({ id: v.user.id, nombre: v.user.name, email: v.user.email, telefono: v.user.phone, vinculo: v.vinculo, codigo: estado(u.id, v.userId), principal: invs.get(u.id)?.userId === v.userId })),
+            personas: genteDelLote(u.vinculos, u.users).map(({ persona: g, vinculo }) => ({ id: g.id, nombre: g.name, email: g.email, telefono: g.phone, vinculo, codigo: estado(u.id, g.id), principal: invs.get(u.id)?.userId === g.id })),
         })),
     };
 }
@@ -545,6 +548,7 @@ export async function lotesDeTodas(): Promise<LoteAdm[]> {
         include: {
             administracion: { select: { id: true, nombre: true, sigla: true, orden: true } },
             vinculos: { include: { user: { select: { id: true, name: true, email: true, phone: true, vehicles: { select: { plate: true } }, credentials: { where: { type: "PLATE" }, select: { value: true } } } } } },
+            users: { select: { id: true, name: true, email: true, phone: true, vehicles: { select: { plate: true } }, credentials: { where: { type: "PLATE" }, select: { value: true } } } },
             servicios: { where: { estado: "ACTIVO" }, select: { tipo: true, nombre: true, chapa: true }, orderBy: { createdAt: "asc" } },
         },
     });
@@ -559,12 +563,12 @@ export async function lotesDeTodas(): Promise<LoteAdm[]> {
     };
     const num = (s: string | null) => parseInt(String(s || "").replace(/\D+/g, "")) || 0;
     const orden = [...unidades].sort((x, y) => (x.administracion?.orden ?? 999) - (y.administracion?.orden ?? 999) || (x.manzana || "").localeCompare(y.manzana || "") || num(x.solar) - num(y.solar) || (x.lot || x.name).localeCompare(y.lot || y.name));
-    return orden.map((u) => ({
+    return orden.map((u) => ({ u, gente: genteDelLote(u.vinculos, u.users) })).map(({ u, gente }) => ({
         id: u.id, nombre: u.name, codigo: u.lot || u.name, manzana: u.manzana, edificio: u.edificio, areaM2: u.areaM2, titular: u.titular, situacion: u.situacion, observaciones: u.description,
         planoX: u.planoX, planoY: u.planoY, coordenadas: u.coordinates?.trim() || null,
         administracion: u.administracion ? { id: u.administracion.id, nombre: u.administracion.nombre, sigla: u.administracion.sigla } : null,
-        chapas: [...new Set(u.vinculos.flatMap((v) => [...v.user.vehicles.map((x) => x.plate), ...v.user.credentials.map((c) => c.value)]).map(limpiarChapa).filter(Boolean))].sort(),
+        chapas: [...new Set(gente.flatMap(({ persona: g }) => [...g.vehicles.map((x) => x.plate), ...g.credentials.map((c) => c.value)]).map(limpiarChapa).filter(Boolean))].sort(),
         servicios: u.servicios.map((sv) => ({ rotulo: [rotuloServicio(sv.tipo), sv.nombre].filter(Boolean).join(" · "), chapa: sv.chapa })),
-        personas: u.vinculos.map((v) => ({ id: v.user.id, nombre: v.user.name, email: v.user.email, telefono: v.user.phone, vinculo: v.vinculo, codigo: estado(u.id, v.userId), principal: invs.get(u.id)?.userId === v.userId })),
+        personas: gente.map(({ persona: g, vinculo }) => ({ id: g.id, nombre: g.name, email: g.email, telefono: g.phone, vinculo, codigo: estado(u.id, g.id), principal: invs.get(u.id)?.userId === g.id })),
     }));
 }

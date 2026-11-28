@@ -63,11 +63,11 @@ export function TablaLotes({ filas, alAbrir, filtro, alFiltrar: setFiltro, conAd
             valor: (l) => l.titular || "", celda: (l) => (
                 <div className="leading-tight min-w-0"><div className="text-[12.5px] truncate">{l.titular || <span className="text-muted-foreground">—</span>}</div>{l.observaciones && <div className="text-[11px] text-muted-foreground line-clamp-1" title={l.observaciones}>{l.observaciones}</div>}</div>) },
         { clave: "personas", titulo: "Personas con correo", ayuda: "La gente del lote. El punto dice cómo va su censo: ámbar listo sin enviar, azul enviado, verde ya cargó. La principal es a quien se le manda primero el código del lote.",
-            valor: (l) => l.personas.map((p) => `${p.nombre} (${VINCULO[p.vinculo] || p.vinculo})`).join("; "), celda: (l) => l.personas.length === 0 ? <span className="text-[12px] text-muted-foreground">—</span> : (
+            valor: (l) => l.personas.map((p) => `${p.nombre} (${VINCULO[p.vinculo] || p.vinculo || "sin vínculo"})`).join("; "), celda: (l) => l.personas.length === 0 ? <span className="text-[12px] text-muted-foreground">—</span> : (
                 <ul className="space-y-0.5">{l.personas.map((p) => (
                     <li key={p.id} className="flex items-center gap-1.5 text-[12.5px] min-w-0" title={`${p.email || "sin correo"} · ${CODIGO[p.codigo].dice}`}>
                         <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", CODIGO[p.codigo].punto)} />
-                        <span className={cn("truncate", p.principal && "font-semibold")}>{p.nombre}</span><span className="shrink-0 text-[11px] text-muted-foreground">{VINCULO[p.vinculo] || p.vinculo}{p.principal ? " · principal" : ""}</span>
+                        <span className={cn("truncate", p.principal && "font-semibold")}>{p.nombre}</span><span className="shrink-0 text-[11px] text-muted-foreground">{VINCULO[p.vinculo] || p.vinculo || "sin vínculo"}{p.principal ? " · principal" : ""}</span>
                     </li>))}</ul>) },
         ...(conAdministracion ? [{ clave: "chapas", titulo: "Matrículas", valor: (l: LoteAdm) => (l.chapas || []).join(" "),
             celda: (l: LoteAdm) => (l.chapas || []).length ? <span className="flex flex-wrap gap-1">{(l.chapas || []).slice(0, 4).map((c) => <Matricula key={c} p={c} />)}{(l.chapas || []).length > 4 && <span className="text-[11px] text-muted-foreground">+{(l.chapas || []).length - 4}</span>}</span> : <span className="text-[12px] text-muted-foreground">—</span> } as ColumnaTabla<LoteAdm>,
