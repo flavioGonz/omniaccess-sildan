@@ -28,6 +28,26 @@
  * eso en el interior NO se toman los códigos que empiezan con A–H (AM, AL, AT, AU, CC, CD, DI, ES,
  * EX…), que chocan con localidades y series particulares; sí los que no (TX, OF, MI, RE, TC, TP…).
  *
+ * SERIES PARTICULARES (28/11, Nico: «reconocer todos los prefijos… tenerlos bien mapeados»). La regla
+ * de arriba —«en Montevideo la categoría es segura, en el interior valen los códigos que no empiezan
+ * con A–H»— resultó falsa en los dos lados. Medido en el lab, 90 días, 3.240 chapas leídas tres veces
+ * o más:
+ *
+ *   · Montevideo. La serie particular de autos va de SA a SD (hoy por SDO) y SE SALTEA los códigos
+ *     acordados por las intendencias: SCC y SCD tienen 3 y 4 chapas donde sus vecinas tienen 12; SDI
+ *     tiene 11 entre SDH 58 y SDJ 67; SDP no tiene ninguna (es «deportivo»). Pero NO saltea los que
+ *     no son del acuerdo: SCM tiene 31, igual que SCL 33 y SCN 22, y se marcaba «Concejal municipal»
+ *     a treinta y un autos particulares. Las motos tienen sus series (SM, SN, SO, SP), y ahí pasaba
+ *     lo mismo con SMZ y SMT. Entonces: dentro de una serie particular sólo valen los ACORDADOS.
+ *
+ *   · Interior. La segunda letra es la localidad, y no siempre empieza en la A: Melo es EM, Mercedes
+ *     KM, Young JY, Rivera FR. Ahí la serie particular NO saltea ni los acordados (BED es Punta del
+ *     Este, no un edil; EMD es Melo, no Defensa). Entonces: si la segunda letra es una serie
+ *     particular de ese departamento (`SERIE_PARTICULAR`), no se afirma ninguna categoría.
+ *
+ * Las series del interior salen de nuestras lecturas (5 chapas firmes o más), porque la única tabla
+ * publicada es la de Maldonado. Cuando una fuente oficial las dé, se reemplazan.
+ *
  * POLICÍA Y BOMBEROS. Los dos dependen del Ministerio del Interior y usan la misma serie MI (SMI en
  * Montevideo; motos de la Jefatura SJP/SMP). La chapa no los distingue: se dice «Ministerio del
  * Interior (Policía o Bomberos)». Lo distingue la foto (OmniVision: color, balizas, rotulado).
@@ -105,7 +125,63 @@ const CATEGORIAS: Record<string, Omit<CategoriaChapa, "codigo">> = {
     DP: { nombre: "Deportivo", corto: "Deportivo", grupo: "especial", tono: "quieto", letras: "verde", explica: "Vehículo deportivo o de competición." },
     VC: { nombre: "Vehículo clásico", corto: "Clásico", grupo: "especial", tono: "quieto", letras: "verde", explica: "Vehículo clásico o de colección." },
     DU: { nombre: "Demostración de usado", corto: "Demostración", grupo: "temporal", tono: "aviso", letras: "rojo", explica: "Chapa de demostración de vehículo usado (concesionaria)." },
+
+    /* ── Sumados el 28/11, del repaso de fuentes (Wikipedia es/en, matriculasdelmundo.com). «DA»
+       (alquiler, serie vieja) queda afuera a propósito: SDA es serie particular de Montevideo. ── */
+    HA: { nombre: "Alquiler (serie anterior)", corto: "Alquiler", grupo: "comercial", tono: "quieto", letras: "rojo", explica: "Auto de alquiler sin chofer, con chapa de la serie anterior al Mercosur." },
+    RA: { nombre: "Remise", corto: "Remise", grupo: "publico", tono: "info", letras: "rojo", explica: "Auto con chofer contratado (remise)." },
+    MT: { nombre: "Turismo (camioneta)", corto: "Turismo", grupo: "publico", tono: "info", letras: "verde", explica: "Camioneta de transporte turístico." },
 };
+
+/**
+ * Los tipos de chapa ACORDADOS por las intendencias (SUCIVE, «Tipos chapas acordados»; los mismos
+ * 26 que lista Academia del Molino). Son los únicos que la serie particular de Montevideo se saltea:
+ * por eso son los únicos que se afirman cuando el código cae adentro de una serie particular.
+ */
+export const ACORDADOS = new Set([
+    "DI", "ME", "CC", "CD", "OI", "OF", "ED", "ID", "JD", "PL", "PE", "PJ", "MD", "MI",
+    "AL", "TP", "RE", "ES", "TX", "AM", "TU", "TC", "TI", "AT", "PR", "DP",
+]);
+
+/**
+ * Las series particulares de cada departamento: qué segundas letras son «un auto de alguien» y no
+ * una categoría. `motos`, cuando el departamento usa letras aparte para las motos (Montevideo).
+ * `localidad`, sólo donde está publicada (Maldonado, matriculasdelmundo.com y Wikipedia en inglés).
+ *
+ * Medido en el lab el 28/11 (90 días, chapas con 3 lecturas o más; entre paréntesis cuántas):
+ * AB 405, AA 183, AV 18, AP 9 · BE 132, BF 17, BA 15, BL 13, BH 11, BG 6, BC 6 · CB 6 · DA 6 ·
+ * EM 11, EE 5 · FR 6 · GA 7 · HA 14 · IA 14, IC 5 · JY 14, JF 5 · KM 8 · LA 17 · MA 91, MI 5 ·
+ * NC 18, NA 9 · OA 26 · PA 5, PC 5 · QA 12 · RA 13. Con menos de 5 no se anota: puede ser una mala
+ * lectura repetida. BL no figura en la tabla publicada de Maldonado, pero tiene 13 chapas.
+ */
+export const SERIE_PARTICULAR: Record<string, { autos: string; motos?: string; localidad?: Record<string, string> }> = {
+    S: { autos: "ABCD", motos: "MNOP" },
+    A: { autos: "ABPV" },
+    B: { autos: "ABCDEFGHL", localidad: { A: "Maldonado", B: "San Carlos", C: "Pan de Azúcar", D: "Aiguá", E: "Punta del Este", F: "Garzón", G: "Piriápolis", H: "Solís" } },
+    C: { autos: "B" }, D: { autos: "A" }, E: { autos: "EM" }, F: { autos: "R" }, G: { autos: "A" }, H: { autos: "A" },
+    I: { autos: "AC" }, J: { autos: "FY" }, K: { autos: "M" }, L: { autos: "A" }, M: { autos: "AI" }, N: { autos: "AC" },
+    O: { autos: "A" }, P: { autos: "AC" }, Q: { autos: "A" }, R: { autos: "A" },
+};
+
+/** ¿La segunda letra es una serie particular de ese departamento, para ese tipo de vehículo? */
+function enSerieParticular(dep: string, l2: string, moto: boolean): boolean {
+    const s = SERIE_PARTICULAR[dep];
+    if (!s) return false;
+    // Sin letras propias de moto, las motos comparten la serie de los autos (así es en el interior).
+    return (moto && s.motos ? s.motos : s.autos).includes(l2);
+}
+
+/**
+ * ¿Se puede afirmar la categoría `cod` en una chapa de ese departamento? Es la regla del
+ * encabezado, en un solo lugar: la usan `leerChapa` y los prefijos del filtro.
+ *   Montevideo: sí, salvo que el código caiga en una serie particular y no sea de los acordados.
+ *   Interior:   sólo los códigos que no chocan con localidades (EN_INTERIOR) y cuya primera letra
+ *               no sea una serie particular de ese departamento.
+ */
+export function categoriaVale(dep: string, cod: string, moto: boolean): boolean {
+    if (dep === "S") return !enSerieParticular("S", cod[0], moto) || ACORDADOS.has(cod);
+    return EN_INTERIOR.has(cod) && !enSerieParticular(dep, cod[0], moto);
+}
 
 /** Series fijas de tres letras (las fuerzas armadas, las motos policiales de Montevideo). */
 const SERIES: Record<string, Omit<CategoriaChapa, "codigo">> = {
@@ -133,6 +209,10 @@ const SERIES: Record<string, Omit<CategoriaChapa, "codigo">> = {
     GBM: { nombre: "Médico de Artigas", corto: "Médico", grupo: "especial", tono: "bien", letras: "verde", explica: "Vehículo de un médico, empadronado en Artigas." },
     GTC: { nombre: "Transporte de carga (Artigas)", corto: "Carga", grupo: "comercial", tono: "quieto", letras: "negro", explica: "Transporte de carga empadronado en Artigas." },
     HOM: { nombre: "Ómnibus interdepartamental (Salto)", corto: "Ómnibus", grupo: "publico", tono: "info", letras: "rojo", explica: "Ómnibus interdepartamental de Salto." },
+    // Sumadas el 28/11.
+    SPE: { nombre: "Presidencia de la República", corto: "Presidencia", grupo: "oficial", tono: "info", letras: "azul", explica: "Vehículo de la Presidencia de la República." },
+    // «BCC» (consular de Maldonado, según Wikipedia en inglés) queda afuera: BC es la serie particular
+    // de Pan de Azúcar, y afirmar «consular» sobre BCC sería repetir el error de SCM.
 };
 
 /**
@@ -144,6 +224,8 @@ const EN_INTERIOR = new Set([
     "TX", "RE", "TC", "TU", "TP", "TR", "OF", "MI", "MD", "IM", "JD", "PL", "PJ", "ME", "OI", "PR", "RO",
     // Sumados el 18/11, con la misma regla: ninguno empieza con A–H.
     "TI", "TD", "TM", "TA", "TZ", "MZ", "ZZ", "MA", "MV", "ID", "RN", "MP", "NG", "LQ", "VC",
+    // Sumados el 28/11 (HA no: en Salto es la serie particular, y empieza con H).
+    "RA", "MT",
 ]);
 
 export type LecturaChapa = {
@@ -155,7 +237,18 @@ export type LecturaChapa = {
     extranjera: "Brasil" | "Argentina" | "Paraguay" | null;
     /** La frase para un desconocido: «Taxi de Montevideo», «Particular de Canelones», «Matrícula argentina». */
     frase: string;
+    /** La localidad, donde la segunda letra la dice y está publicada (hoy sólo Maldonado). */
+    localidad?: string | null;
+    /**
+     * Tiene forma de chapa uruguaya pero empieza con una letra que no es de ningún departamento
+     * (T–Z): es extranjera con el formato viejo, o está mal leída. Es la primera señal para corregir
+     * por prefijo.
+     */
+    sinDepartamento?: boolean;
 };
+
+/** Maldonado, chapa anterior a 2019 (B 512·345): el primer número dice la localidad. Sólo los cinco que muestran las fuentes. */
+const MALDONADO_VIEJA: Record<string, string> = { "1": "Maldonado", "2": "San Carlos", "5": "Punta del Este", "7": "Piriápolis", "8": "Solís" };
 
 const PAIS: Record<string, LecturaChapa["extranjera"]> = { BR: "Brasil", AR: "Argentina", PY: "Paraguay" };
 
@@ -170,7 +263,10 @@ export function leerChapa(texto: string | null | undefined): LecturaChapa | null
     }
     // AAA1234 puede ser también brasileña vieja; acá se la toma como uruguaya, que es lo que se ve en el barrio.
     const dep = DEPARTAMENTO[p[0]] || null;
-    if (n.formato === "UY_VIEJA") return { departamento: dep, categoria: null, confianza: null, extranjera: null, frase: dep ? `Chapa vieja de ${dep}` : "Chapa uruguaya vieja" };
+    if (n.formato === "UY_VIEJA") {
+        const loc = p[0] === "B" ? MALDONADO_VIEJA[p[1]] || null : null;
+        return { departamento: dep, categoria: null, confianza: null, extranjera: null, localidad: loc, frase: dep ? `Chapa vieja de ${dep}${loc ? ` (${loc})` : ""}` : "Chapa uruguaya vieja" };
+    }
     const serie = SERIES[p.slice(0, 3)];
     if (serie) return { departamento: dep, categoria: { codigo: p.slice(0, 3), ...serie }, confianza: "alta", extranjera: null, frase: serie.nombre };
     const cod = p.slice(1, 3);
@@ -178,7 +274,7 @@ export function leerChapa(texto: string | null | undefined): LecturaChapa | null
     const moto = n.formato === "UY_MOTO";
     if (cat && dep) {
         const montevideo = p[0] === "S";
-        if (montevideo || EN_INTERIOR.has(cod)) {
+        if (categoriaVale(p[0], cod, moto)) {
             return {
                 departamento: dep, categoria: { codigo: cod, ...cat }, confianza: montevideo ? "alta" : "probable", extranjera: null,
                 // Sin «(moto)»: las series especiales también usan tres números (SCD 150) sin ser motos.
@@ -186,7 +282,10 @@ export function leerChapa(texto: string | null | undefined): LecturaChapa | null
             };
         }
     }
-    return { departamento: dep, categoria: null, confianza: null, extranjera: null, frase: dep ? `${moto ? "Moto particular" : "Particular"} de ${dep}` : "Particular" };
+    // Con forma uruguaya y una primera letra que no es de ningún departamento: no es «Particular».
+    if (!dep) return { departamento: null, categoria: null, confianza: null, extranjera: null, sinDepartamento: true, frase: "Sin departamento: extranjera o mal leída" };
+    const loc = SERIE_PARTICULAR[p[0]]?.localidad?.[p[1]] || null;
+    return { departamento: dep, categoria: null, confianza: null, extranjera: null, localidad: loc, frase: `${moto ? "Moto particular" : "Particular"} de ${dep}${loc ? ` (${loc})` : ""}` };
 }
 
 /**
@@ -199,14 +298,14 @@ export function leerChapa(texto: string | null | undefined): LecturaChapa | null
 export type TipoChapa = { id: string; rotulo: string; codigos: string[]; series?: string[]; aspecto?: boolean };
 export const TIPOS_CHAPA: TipoChapa[] = [
     { id: "taxi", rotulo: "Taxi", codigos: ["TX"], series: ["GAT", "GBT"], aspecto: true },
-    { id: "remise", rotulo: "Remise", codigos: ["RE"], series: ["GAR", "GBR"] },
-    { id: "transporte", rotulo: "Ómnibus, turismo y escolar", codigos: ["TC", "TU", "TI", "ES", "TD"], series: ["GAO", "GBO", "GAE", "HOM"] },
+    { id: "remise", rotulo: "Remise", codigos: ["RE", "RA"], series: ["GAR", "GBR"] },
+    { id: "transporte", rotulo: "Ómnibus, turismo y escolar", codigos: ["TC", "TU", "TI", "ES", "TD", "MT"], series: ["GAO", "GBO", "GAE", "HOM"] },
     { id: "policia", rotulo: "Policía / Bomberos", codigos: ["MI"], series: ["SJP", "SMP"] },
     { id: "ambulancia", rotulo: "Ambulancia", codigos: ["AM"] },
-    { id: "oficial", rotulo: "Oficial e intendencia", codigos: ["OF", "IM", "ID", "JD", "PL", "PE", "PJ", "ED", "CM", "RN", "MP"], series: ["AIC"] },
+    { id: "oficial", rotulo: "Oficial e intendencia", codigos: ["OF", "IM", "ID", "JD", "PL", "PE", "PJ", "ED", "CM", "RN", "MP"], series: ["AIC", "SPE"] },
     { id: "militar", rotulo: "Fuerzas armadas", codigos: ["MD"], series: ["ENA", "ENT", "FAU", "ARN", "ANA"] },
     { id: "diplomatico", rotulo: "Diplomático y consular", codigos: ["CD", "CC", "OI", "NG"] },
-    { id: "alquiler", rotulo: "Alquiler (rent a car)", codigos: ["AL", "LQ"] },
+    { id: "alquiler", rotulo: "Alquiler (rent a car)", codigos: ["AL", "LQ", "HA"] },
     { id: "carga", rotulo: "Carga y remolque", codigos: ["TP", "TR", "TM", "TA", "TZ", "MZ", "ZZ"], series: ["CCM", "CCZ", "GTC"] },
     { id: "medico", rotulo: "Médico", codigos: ["ME"], series: ["GAM", "GBM"] },
     { id: "maquinaria", rotulo: "Maquinaria", codigos: ["MA", "MV"] },
@@ -215,18 +314,18 @@ export const TIPOS_CHAPA: TipoChapa[] = [
 ];
 
 /**
- * Los comienzos de chapa de un tipo, con la misma regla de confianza que `leerChapa`: en
- * Montevideo (S…) todos los códigos; en el interior sólo los que no chocan con localidades.
+ * Los comienzos de chapa de un tipo, con la misma regla que `leerChapa` (`categoriaVale`): no entra
+ * un código que en ese departamento cae adentro de una serie particular (SCM no es «oficial»).
  * Sirven para filtrar con `startsWith` / `LIKE 'STX%'` sin expresiones regulares en la base.
  */
 export function prefijosDeTipo(id: string): string[] {
     const t = TIPOS_CHAPA.find((x) => x.id === id);
     if (!t) return [];
     const out = new Set<string>(t.series || []);
-    for (const c of t.codigos) {
-        out.add(`S${c}`);
-        if (EN_INTERIOR.has(c)) for (const d of Object.keys(DEPARTAMENTO)) if (d !== "S") out.add(`${d}${c}`);
-    }
+    /* Un prefijo no dice si la chapa es de auto o de moto: se toma la regla de los autos, que son
+       casi todo lo que se filtra. (Las motos SMZ/SMT de la serie SM quedan adentro de «carga» y
+       «transporte»; `leerChapa`, que sí ve el largo, las dice «Moto particular».) */
+    for (const c of t.codigos) for (const d of Object.keys(DEPARTAMENTO)) if (categoriaVale(d, c, false)) out.add(`${d}${c}`);
     return [...out];
 }
 

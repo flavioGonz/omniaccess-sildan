@@ -71,5 +71,14 @@ export function CategoriaChapa({ plate, extranjera = false, aspecto = null, clas
             </Pista>
         );
     }
+    /* Con forma de chapa uruguaya pero una primera letra que no es de ningún departamento (28/11): se
+       avisa, punteado, porque casi siempre es una mala lectura. No es un estado «malo»: es una duda. */
+    if (l.sinDepartamento) {
+        return (
+            <Pista titulo="Sin departamento" texto="Tiene forma de matrícula uruguaya, pero empieza con una letra que no es de ningún departamento (van de la A a la S). Es una chapa extranjera con el formato viejo, o una mala lectura: mirá la foto.">
+                <span className={cn("inline-flex items-center gap-1 h-5 px-1.5 rounded-full border border-dashed text-[10.5px] font-bold whitespace-nowrap chip-aviso", className)}><Globe2 size={11} /> ¿Extranjera?</span>
+            </Pista>
+        );
+    }
     return null;
 }
