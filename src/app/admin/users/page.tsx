@@ -18,7 +18,7 @@ import { getDevices, getLprSyncMap } from "@/app/actions/devices";
 import { UserRole } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Users, Plus, Camera, Home, Briefcase, Truck, DoorOpen, Ban, Search, Send } from "lucide-react";
+import { Users, Plus, Camera, Home, Briefcase, Truck, DoorOpen, Ban, Search, Send, Layers } from "lucide-react";
 import { useConfirmar } from "@/components/ui/use-confirmar";
 import { buscadorDeCenso, conInvitacion, type InvitacionResumen } from "@/lib/censo-estado";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
@@ -31,6 +31,11 @@ import { ImportUsersDialog } from "@/components/ImportUsersDialog";
 import { SyncToDevicesDialog } from "@/components/SyncToDevicesDialog";
 import { cn } from "@/lib/utils";
 import { TablaUsuarios } from "@/components/users/TablaUsuarios";
+import { TablaProveedores, ORIGEN } from "@/components/users/TablaProveedores";
+import { CajonLote } from "@/components/lotes/CajonLote";
+import { FormServicio } from "@/components/administraciones/FormServicio";
+import { serviciosReunidos } from "@/app/actions/proveedores";
+import { contarProveedores, filtrarProveedores, reunirProveedores, type FiltroOrigen, type ProveedorReunido, type ServicioDeAdmCrudo, type ServicioDeLoteCrudo } from "@/lib/proveedores-reunidos";
 import { Filtros } from "@/components/ui/filtros";
 import {
     PESTANIAS, pestaniaDeRol, normalizarComportamiento, COMPORTAMIENTO_DEFECTO, SIN_IDENTIFICAR, esPestaniaDeFichas, NIVEL_DE_PESTANIA, estadoRevision,
@@ -166,6 +171,23 @@ export default function UsersPage() {
     const columnaCenso = useMemo(() => (censoOn && censo && pestania === "residentes"
         ? { de: estadoCenso, alEnviar: enviarCenso, enviando: enviandoCenso } : undefined), [censoOn, censo, pestania, estadoCenso, enviarCenso, enviandoCenso]);
 
+    /* Proveedores, reunidos (28/11, Nico: «ese panel debe juntarlos y distinguirlos»): a las personas
+       del padrón con rol de proveedor se les suman los servicios de las administraciones y los de
+       cada lote. Vienen en una sola consulta aparte; null es «todavía no llegaron». */
+    const [servicios, setServicios] = useState<{ administraciones: ServicioDeAdmCrudo[]; lotes: ServicioDeLoteCrudo[] } | null>(null);
+    const [errorServicios, setErrorServicios] = useState<string | null>(null);
+    const [origenProv, setOrigenProv] = useState<FiltroOrigen>("todos");
+    const [bajasProv, setBajasProv] = useState(false);
+    /** El lote abierto desde un servicio de lote: su cajón de siempre, donde el servicio se corrige. */
+    const [loteAbierto, setLoteAbierto] = useState<string | null>(null);
+    /** El servicio de una administración que se está corrigiendo, con el cajón de Administraciones. */
+    const [servicioAdm, setServicioAdm] = useState<ServicioDeAdmCrudo | null>(null);
+    const cargarServicios = useCallback(() => {
+        setErrorServicios(null);
+        serviciosReunidos().then(setServicios)
+            .catch((e) => { setServicios({ administraciones: [], lotes: [] }); setErrorServicios(e?.message || "No se pudieron traer los servicios de los lotes y las administraciones."); });
+    }, []);
+
     const searchParams = useSearchParams();
     const router = useRouter();
 
@@ -231,6 +253,7 @@ export default function UsersPage() {
     useEffect(() => {
         loadData();
         cargarFichas();
+        cargarServicios();
         fetchSyncMap();
         getComportamientoPadron().then(setComportamiento).catch(() => { /* queda el defecto, que es lo que el monitor ya hace */ });
         getAvisosListaNegra().then(setAvisos).catch(() => setAvisos({ activas: 0, total: 0, canales: [] }));
@@ -253,14 +276,32 @@ export default function UsersPage() {
     // Con la función apagada no hay pestaña amarilla: quien llegó por un enlace viejo cae en la negra.
     useEffect(() => { if (busquedaOn === false && pestania === "listaamarilla") setPestania("listanegra"); }, [busquedaOn, pestania]);
 
+    /** Los proveedores de las tres fuentes en una lista, y cuántos hay de cada una. */
+    const proveedores = useMemo(() => reunirProveedores(
+        users.filter((u) => pestaniaDeRol(u.role) === "proveedores"), servicios?.administraciones || [], servicios?.lotes || [],
+    ), [users, servicios]);
+    const cuentasProv = useMemo(() => contarProveedores(proveedores), [proveedores]);
+    const proveedoresVistos = useMemo(() => filtrarProveedores(proveedores, { origen: origenProv, bajas: bajasProv, q: searchQuery }), [proveedores, origenProv, bajasProv, searchQuery]);
+    // Sin bajas no hay filtro de «dejaron de venir»: si la última se reactivó, se vuelve a los que vienen.
+    useEffect(() => { if (bajasProv && cuentasProv.bajas === 0) setBajasProv(false); }, [bajasProv, cuentasProv.bajas]);
+
+    /** Abrir una fila de proveedores donde se corrige: la persona, el lote, o el servicio de la administración. */
+    const abrirProveedor = (f: ProveedorReunido) => {
+        if (f.origen === "barrio") { const u = users.find((x) => x.id === f.id); if (u) { setSelectedUser(u); setIsFormOpen(true); } return; }
+        if (f.origen === "lote") { if (f.de) setLoteAbierto(f.de.id); return; }
+        setServicioAdm(servicios?.administraciones.find((x) => x.id === f.id) || null);
+    };
+
     /** Cuántos hay en cada pestaña, para el número de la pestaña. */
     const cuentas = useMemo(() => {
         const c: Record<ClavePestania, number> = { residentes: 0, personal: 0, proveedores: 0, visitas: 0, listanegra: 0, listaamarilla: 0 };
         for (const u of users) { const k = pestaniaDeRol(u.role); if (!esPestaniaDeFichas(k)) c[k]++; }
+        // Proveedores cuenta lo que su pestaña muestra: los del padrón más los servicios vigentes.
+        c.proveedores = cuentasProv.todos;
         // Cada lista cuenta lo suyo: la negra, la alerta máxima; la amarilla, lo que está en seguimiento.
         for (const f of fichasLN) if (f.activa) c[f.nivel === "SEARCH" ? "listaamarilla" : "listanegra"]++;
         return c;
-    }, [users, fichasLN]);
+    }, [users, fichasLN, cuentasProv.todos]);
 
     /** Las personas de la pestaña, filtradas por la búsqueda, y recién después recortadas. */
     const filtrados = useMemo(() => {
@@ -272,7 +313,7 @@ export default function UsersPage() {
     }, [users, searchQuery, pestania]);
     const aMostrar = filtrados.slice(0, aLaVista);
     const hayMas = aLaVista < filtrados.length;
-    useEffect(() => { setALaVista(PAGINA); }, [searchQuery, pestania]);
+    useEffect(() => { setALaVista(PAGINA); }, [searchQuery, pestania, origenProv, bajasProv]);
 
     const fichasVisibles = useMemo(() => {
         const q = searchQuery.trim().toUpperCase();
@@ -403,6 +444,41 @@ export default function UsersPage() {
                                 />
                             }
                         />
+                    ) : pestania === "proveedores" ? (
+                        <TablaProveedores
+                            filas={proveedoresVistos.slice(0, aLaVista)}
+                            cargando={(isLoading && users.length === 0) || servicios === null}
+                            error={error || errorServicios}
+                            alReintentar={() => { if (error) { setError(null); loadData(); } cargarServicios(); }}
+                            hayMas={aLaVista < proveedoresVistos.length}
+                            traerMas={() => setALaVista((n) => n + PAGINA)}
+                            alAbrir={abrirProveedor}
+                            barra={
+                                <Filtros
+                                    busqueda={searchQuery} alBuscar={setSearchQuery}
+                                    placeholder="Nombre, servicio, lote, matrícula o contacto"
+                                    grupos={[
+                                        {
+                                            clave: "origen", titulo: "De quién es cada proveedor", valor: origenProv, alElegir: (v) => setOrigenProv(v as FiltroOrigen),
+                                            opciones: [
+                                                { valor: "todos", rotulo: "Todos", icono: Layers, cuenta: bajasProv ? undefined : cuentasProv.todos },
+                                                ...(["barrio", "administracion", "lote"] as const).map((o) => ({ valor: o, rotulo: ORIGEN[o].rotulo, icono: ORIGEN[o].icono, titulo: ORIGEN[o].que, cuenta: bajasProv ? undefined : cuentasProv[o] })),
+                                            ],
+                                        },
+                                        {
+                                            clave: "bajas", titulo: "Los servicios de lote que se dieron de baja quedan en el registro", valor: bajasProv ? "bajas" : "vienen", alElegir: (v) => setBajasProv(v === "bajas"),
+                                            oculto: cuentasProv.bajas === 0,
+                                            opciones: [{ valor: "vienen", rotulo: "Vienen" }, { valor: "bajas", rotulo: "Dejaron de venir", cuenta: cuentasProv.bajas }],
+                                        },
+                                    ]}
+                                    acciones={comportaEnBarra}
+                                />
+                            }
+                            pie={<span className="tabular-nums">
+                                {proveedoresVistos.length} {proveedoresVistos.length === 1 ? "proveedor" : "proveedores"}
+                                {!bajasProv && origenProv === "todos" && !searchQuery.trim() && <> · {cuentasProv.barrio} {ORIGEN.barrio.plural} · {cuentasProv.administracion} {ORIGEN.administracion.plural} · {cuentasProv.lote} {ORIGEN.lote.plural}</>}
+                            </span>}
+                        />
                     ) : (
                         <TablaUsuarios
                             titulo={tab.columna}
@@ -441,6 +517,14 @@ export default function UsersPage() {
                     setIsFormOpen(false); setSelectedUser(null); setCreateInitialData(undefined);
                 }}
             />
+
+            {/* Un servicio de lote se corrige en el cajón de su lote, que es donde vive y donde queda el
+                historial; al cerrarlo se vuelve a traer la lista, por si cambió. */}
+            <CajonLote unitId={loteAbierto} alCerrar={() => { setLoteAbierto(null); cargarServicios(); }} />
+            {servicioAdm && (
+                <FormServicio administracionId={servicioAdm.administracion.id} nombreAdm={servicioAdm.administracion.nombre} s={servicioAdm}
+                    alCerrar={() => setServicioAdm(null)} alGuardar={() => { setServicioAdm(null); cargarServicios(); }} />
+            )}
 
             <CajonListaNegra
                 abierta={!!fichaAbierta || !!altaFicha}

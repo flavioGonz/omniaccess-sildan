@@ -7,6 +7,7 @@ import { getSession } from "@/app/actions/auth";
 import { credencialesVisibles } from "@/lib/credenciales-visibles";
 import { ZONA } from "@/lib/fechas";
 import { permanencia, type Pasada } from "@/lib/planilla";
+import type { ServicioDeAdmCrudo, ServicioDeLoteCrudo } from "@/lib/proveedores-reunidos";
 
 /**
  * Proveedores: no duplicarlos, y su planilla de empleados.
@@ -151,4 +152,32 @@ export async function ponerAutorizado(empleadoId: string, autorizado: boolean) {
 export async function quitarDeLaPlanilla(empleadoId: string) {
     await prisma.user.update({ where: { id: empleadoId }, data: { empleadorId: null } });
     revalidatePath("/admin/users");
+}
+
+/**
+ * Los servicios de las administraciones y los de cada lote, para Usuarios › Proveedores (28/11).
+ * Los proveedores del barrio no vienen acá: son personas del padrón y ya llegan con `getUsers`.
+ * La página junta las tres fuentes con lib/proveedores-reunidos.
+ *
+ * Trae también los servicios de lote dados de baja: la lista los esconde hasta que se los pide, y
+ * así «dejó de venir» se puede revisar sin ir lote por lote.
+ */
+export async function serviciosReunidos(): Promise<{ administraciones: ServicioDeAdmCrudo[]; lotes: ServicioDeLoteCrudo[] }> {
+    const [adm, lotes] = await Promise.all([
+        prisma.administracionServicio.findMany({
+            select: { id: true, rubro: true, proveedor: true, contacto: true, telefono: true, email: true, horario: true, notas: true, administracion: { select: { id: true, nombre: true, sigla: true } } },
+            orderBy: [{ administracion: { orden: "asc" } }, { rubro: "asc" }],
+        }),
+        prisma.servicioLote.findMany({
+            select: {
+                id: true, tipo: true, nombre: true, telefono: true, documento: true, chapa: true, dias: true, desde: true, hasta: true, notas: true, estado: true, origen: true, autorizado: true,
+                unit: { select: { id: true, name: true, administracion: { select: { sigla: true } } } },
+            },
+            orderBy: { createdAt: "asc" },
+        }),
+    ]);
+    return {
+        administraciones: adm,
+        lotes: lotes.map(({ unit, ...s }) => ({ ...s, lote: { id: unit.id, nombre: unit.name, etapa: unit.administracion?.sigla || null } })),
+    };
 }

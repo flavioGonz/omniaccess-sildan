@@ -153,7 +153,8 @@ export const ACCIONES: Record<string, Archivo> = {
     parking: { defecto: P("plazas.config") },
     plazas: { defecto: P("plazas.config") },
     procesos: { defecto: P("mantenimiento"), por: { auditoriaProcesos: P("mantenimiento") } },
-    proveedores: { defecto: P("visitas", "usuarios.editar") },
+    // La lista reunida de Usuarios › Proveedores (28/11) es lectura del padrón: quien lo ve, la ve.
+    proveedores: { defecto: P("visitas", "usuarios.editar"), por: { serviciosReunidos: P("usuarios") } },
     provision: { defecto: P("dispositivos.editar") },
     "pwa-subs": { defecto: P("notificaciones") },
     "queue-schedules": { defecto: P("filas.config") },
